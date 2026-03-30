@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+
+# Generated artifacts
+models/*.pkl
+reports/*.json
+reports/*.csv
+data/processed/*.csv
