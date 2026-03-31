@@ -98,6 +98,124 @@ Core logic functions return values. The orchestration layer (main.py) decides wh
 metrics = evaluate_model(model, X_test, y_test)  # Returns dict
 # Orchestration decides: save it, print it, log it, email it
 ```
+
+## Setup Instructions
+
+### Prerequisites
+- **Python 3.10 or higher** is required for this project.
+  - **Note**: If using Python 3.14+, pre-built binary wheels for older package versions may not be available. The requirements.txt specifies the latest compatible versions tested with this codebase.
+
+### Step 1: Create Virtual Environment
+
+**On Windows:**
+```bash
+python -m venv venv
+```
+
+**On Mac/Linux:**
+```bash
+python3 -m venv venv
+```
+
+### Step 2: Activate Virtual Environment
+
+**On Windows:**
+```bash
+venv\Scripts\activate
+```
+
+**On Mac/Linux:**
+```bash
+source venv/bin/activate
+```
+
+You should see `(venv)` appear in your terminal prompt when activated.
+
+### Step 3: Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+This installs all project dependencies with exact versions to ensure reproducibility:
+- `pandas==3.0.2` — Data manipulation and analysis
+- `numpy==2.4.4` — Numerical computing
+- `scikit-learn==1.8.0` — Machine learning pipelines and models
+- `joblib==1.5.3` — Model serialization and persistence
+
+### Step 4: Run the Pipeline
+
+```bash
+python main.py
+```
+
+This will execute the complete ML workflow:
+1. Load raw data from `data/raw/telco_churn.csv`
+2. Clean and preprocess the data
+3. Save processed data to `data/processed/cleaned_telco_churn.csv`
+4. Train a RandomForest classifier
+5. Evaluate model performance
+6. Save model artifacts to `models/`
+7. Save metrics report to `reports/metrics.json`
+8. Generate sample predictions to `reports/predictions.csv`
+
+## Dependency Management
+
+### Why Exact Version Pinning?
+
+This project uses **exact version pinning** (e.g., `pandas==2.1.0`) rather than loose constraints (e.g., `pandas>=2.0.0`).
+
+**Reasons:**
+- **Reproducibility**: Different library versions may produce different preprocessing results, model behavior, or serialization formats.
+- **Consistency**: Guarantees that all team members and CI/CD pipelines run with identical environments.
+- **Stability**: Prevents silent failures from unexpected library updates or deprecated APIs.
+- **ML Trust**: Model performance and metrics must not drift due to dependency changes.
+
+### Testing Reproducibility
+
+Before submission, verify that your project runs from a clean environment:
+
+```bash
+# 1. Deactivate current environment
+deactivate
+
+# 2. Remove the virtual environment
+rm -r venv  (Mac/Linux)
+rmdir /s venv  (Windows)
+
+# 3. Recreate from scratch
+python -m venv venv
+
+# 4. Activate new environment
+venv\Scripts\activate  (Windows) or source venv/bin/activate (Mac/Linux)
+
+# 5. Install dependencies fresh
+pip install -r requirements.txt
+
+# 6. Run the full pipeline
+python main.py
+```
+
+If the pipeline runs successfully with identical results, your dependency management is correct.
+
+## Dependency Change Workflow
+
+If you need to add or update a package:
+
+1. **Install the package** in your active virtual environment:
+   ```bash
+   pip install package_name==version
+   ```
+
+2. **Test your code** to ensure compatibility with the new version.
+
+3. **Update requirements.txt** with the new package and exact version.
+
+4. **Document the change** in your commit message explaining why the change was necessary.
+
+5. **Verify reproducibility** using the testing steps above.
+
+Never commit code that requires packages not listed in requirements.txt.
 No printing inside core functions. This makes functions composable and testable.
 
 ### 8. Explicit Imports (No Wildcards)
