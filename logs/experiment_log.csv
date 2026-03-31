@@ -1,0 +1,2 @@
+timestamp,run_id,model_type,hyperparameters,accuracy,precision,recall,f1_score,duration_sec,notes
+2026-03-31T12:00:15,run_001,RandomForest,n_estimators=300 max_depth=8,0.8642,0.8521,0.8734,0.8627,45.23,Initial baseline model
