@@ -1,6 +1,21 @@
-# [Refactor] Modular ML Pipeline Into Reusable Functions
+# University Student Academic Performance Analysis
 
-This repository demonstrates a clean machine learning workflow built with modular Python functions and explicit imports.
+## Problem Statement
+
+Universities struggle with visibility into student academic performance trends and lack actionable insights to support at-risk students. This project performs **exploratory analysis on anonymized academic records** to uncover critical correlations between:
+
+- **Attendance patterns** and academic outcomes
+- **Assessment scores** across assessment types
+- **Overall academic performance** trends by course and semester
+- **Risk factors** that indicate struggling students
+
+By identifying these correlations, universities can design targeted interventions, allocate resources to vulnerable cohorts, and improve overall student success rates.
+
+## Project Overview
+
+This repository demonstrates a **modular, production-grade machine learning workflow** built with clear separation of concerns. Each stage (data loading, preprocessing, feature engineering, training, evaluation, and inference) is isolated into independent, testable modules. This architecture prevents data leakage, ensures reproducibility, and enables safe deployment of academic performance predictions.
+
+The system is designed to support both exploratory analysis and predictive modeling, ensuring insights are both interpretable and actionable.
 
 ## Project Structure
 
@@ -42,62 +57,80 @@ project_root/
 
 ## Module Responsibilities
 
-- `src/config.py`: Centralized configuration (paths, schema, randomness, model hyperparameters).
-- `src/data_preprocessing.py`: Data loading, cleaning, and train/test splitting utilities.
-- `src/feature_engineering.py`: Encodes categorical features and scales numerical features.
-- `src/train.py`: Trains and returns a fitted model.
-- `src/evaluate.py`: Computes and returns evaluation metrics as a dictionary.
-- `src/predict.py`: Loads saved artifacts and generates predictions for new data.
-- `main.py`: Orchestrates the full train/evaluate/save/predict sequence.
+Each module handles one stage of the ML workflow for academic performance analysis:
+
+- **`src/config.py`**: Centralized configuration (file paths, column schemas, academic metrics, random seeds, model hyperparameters). Single source of truth for all project constants.
+- **`src/data_preprocessing.py`**: Loads academic records from raw CSV, handles missing values, validates attendance and assessment data, and performs train/test splits. **Does not fit encoders or scalers.**
+- **`src/feature_engineering.py`**: Builds a preprocessing pipeline that encodes categorical features (e.g., course type, semester), scales numerical features (e.g., attendance percentage, assessment scores), and creates derived features (e.g., cumulative GPA, attendance trend).
+- **`src/train.py`**: Trains a model on prepared features to predict academic outcomes (e.g., pass/fail, performance tier). Fits the preprocessing pipeline and model on training data only. Saves artifacts for reuse.
+- **`src/evaluate.py`**: Computes evaluation metrics (accuracy, precision, recall, ROC-AUC) on held-out test data. Returns metrics as a dictionary (never prints or writes).
+- **`src/predict.py`**: Loads saved preprocessing pipeline and trained model. Generates predictions for new students using **`transform()`** only (never refits). Returns predictions with confidence scores.
+- **`main.py`**: Orchestrates the entire workflow: loads data → preprocesses → trains → evaluates → saves → predicts on sample new data.
 
 ## Design Principles Applied
 
 ### 1. Separation of Concerns
 Each module handles one stage of the ML workflow:
-- **data_preprocessing.py** — How do we load and prepare raw data?
+- **data_preprocessing.py** — How do we load and prepare raw academic records?
 - **feature_engineering.py** — How do we transform cleaned data into model-ready features?
-- **train.py** — How do we fit a model on prepared features?
-- **evaluate.py** — How do we measure model performance?
-- **predict.py** — How do we generate predictions using saved artifacts?
+- **train.py** — How do we fit a model on prepared features to predict outcomes?
+- **evaluate.py** — How do we measure model performance objectively?
+- **predict.py** — How do we generate predictions for new (current) students using saved artifacts?
 
 This separation prevents code duplication, makes testing easier, and ensures that changes to one stage don't accidentally break another.
 
+**Why this matters for academic systems:** If training and inference are mixed in one script, you risk refitting preprocessing on current student data and leaking future knowledge into the model. Separation ensures the model learned patterns from historical data are applied consistently to new students.
+
 ### 2. Single Responsibility Principle
 Each function does exactly one thing:
-- `load_data()` → loads CSV
-- `clean_data()` → handles missing values
-- `split_data()` → splits into train/test
-- `build_preprocessing_pipeline()` → creates transformers
-- `train_model()` → trains and returns fitted model
-- `evaluate_model()` → computes metrics, returns dict (never prints)
-- `predict_new_data()` → generates predictions only
+- `load_data()` → loads academic records from CSV
+- `clean_data()` → handles missing values, validates attendance percentages, sanitizes assessment scores
+- `split_data()` → stratified split into train/test (ensuring all courses/semesters represented equally)
+- `build_preprocessing_pipeline()` → creates encoders and scalers for categorical/numerical features
+- `train_model()` → trains and returns a fitted classifier
+- `evaluate_model()` → computes metrics, returns dict (never prints or writes)
+- `predict_new_data()` → generates predictions only, uses `transform()` not `fit_transform()`
 
 No function loads AND cleans AND trains. This isolation makes functions independently testable and reusable.
 
 ### 3. Centralized Configuration
-All file paths, random seeds, hyperparameters, and column names live in `src/config.py`:
+All file paths, random seeds, hyperparameters, column schemas, and academic metrics live in `src/config.py`:
 - Change the random seed in one place, it updates everywhere
-- Change a file path once, not across multiple modules
+- Change a column name once, not across multiple modules
 - Makes reproducibility explicit and verifiable
-- Eliminates magic numbers scattered through code
+- Prevents magic numbers and hardcoded values scattered through code
 
 ### 4. Clear Input/Output Contracts
 Every function has:
 - **Type hints** on parameters and return values (e.g., `X_train: pd.DataFrame → RandomForestClassifier`)
 - **Docstrings** explaining what it does, what it expects, what it returns
-- **Explicit parameters** (no reliance on global variables)
+- **Explicit parameters** (no reliance on global variables or side effects)
 
 This makes functions impossible to misuse and easy for others to understand.
 
 ### 5. Training/Inference Separation (Prevents Data Leakage)
 ```python
-# Training fits on training data
-X_train_processed = pipeline.fit_transform(X_train)
+# Training: Fit preprocessing ONLY on training data
+X_train_processed = preprocessing_pipeline.fit_transform(X_train)
+X_test_processed = preprocessing_pipeline.transform(X_test)
 
-# Prediction only transforms, never refits
-X_new_processed = pipeline.transform(new_data)  # NOT fit_transform
+# Inference: Load saved pipeline, apply without refitting
+X_new_processed = preprocessing_pipeline.transform(new_student_data)  # NOT fit_transform()
 ```
-Training and prediction are completely separate. Prediction loads already-fitted artifacts and uses `transform()`, never `fit()`. This architectural boundary prevents accidental data leakage.
+
+Training and prediction are completely separate. Prediction loads already-fitted artifacts and uses `transform()`, never `fit()`. 
+
+**Why this matters:** If preprocessing is refitted on current student data, attendance statistics would shift, throwing off the model's calibration. The model was trained on historical distributions—reusing those transformations ensures consistent predictions.
+
+### 6. Why This Prevents Failures in Academic Systems
+
+| Failure Mode | Consequence | Prevention |
+|---|---|---|
+| Preprocessing refit during prediction | Model gives inconsistent predictions for similar students | `predict.py` uses `transform()` only |
+| Training data accidentally mixed with test | Metrics become meaningless, true performance unknown | `split_data()` separates before any fitting |
+| Model retrained during prediction | System runs slowly, students get delayed support | `predict.py` loads artifacts, doesn't train |
+| Row/column names hardcoded in multiple files | Changing schema breaks unpredictably | All names in `config.py`, imported everywhere |
+| Data loading logic hides data quality issues | Silent failures produce wrong predictions | `clean_data()` validates and raises errors |
 
 ### 6. Reproducibility via Explicit Randomness
 Every operation that involves randomness exposes `random_state`:
@@ -113,6 +146,181 @@ Core logic functions return values. The orchestration layer (main.py) decides wh
 metrics = evaluate_model(model, X_test, y_test)  # Returns dict
 # Orchestration decides: save it, print it, log it, email it
 ```
+
+---
+
+## Exploratory Analysis Goals
+
+This project investigates the following research questions using anonymized academic records:
+
+1. **Attendance Impact**: What is the relationship between attendance rates and academic outcomes? Are there attendance thresholds that predict failure?
+2. **Assessment Patterns**: Which assessment types (e.g., midterm, final, assignments) are strongest predictors of overall performance?
+3. **Temporal Trends**: Do performance patterns change across semesters? Are there students with declining trends who need intervention?
+4. **Course-Level Insights**: Which courses have students most at risk? Are certain courses prerequisites that strongly predict future performance?
+5. **Actionable Thresholds**: What combinations of attendance and assessment scores indicate a student needs academic support?
+
+**Outputs:**
+- `notebooks/eda.ipynb` → Visualizations and correlations (exploratory—may contain duplicated logic)
+- `reports/metrics.json` → Cross-validated model performance (authoritative)
+- `reports/predictions.csv` → Risk scores for all students (used for intervention planning)
+- `logs/experiment_log.csv` → Model hyperparameters and training runs (reproducibility)
+
+---
+
+## Quick Start
+
+### 1. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Prepare Data
+Place your anonymized academic records in `data/raw/academic_records.csv` with columns:
+- `attendance_rate` (0-100, percentage)
+- `midterm_score` (0-100)
+- `final_score` (0-100)
+- `assignment_average` (0-100)
+- `course_id` (categorical, e.g., "CS101")
+- `semester` (categorical, e.g., "Fall2023")
+- `passed` (binary, 0/1 - target variable)
+
+### 3. Run the Pipeline
+```bash
+python main.py
+```
+
+This will:
+- Load and clean academic records
+- Split into train/test (80/20 stratified)
+- Fit preprocessing and model on training data
+- Evaluate on test data and print metrics
+- Save model, preprocessing pipeline, metrics, and sample predictions
+- Generate predictions for new student data
+
+### 4. Generate Predictions for Current Students
+```python
+from src.config import Config
+from src.predict import predict_new_data
+import pandas as pd
+
+config = Config()
+new_students = pd.read_csv("data/raw/current_students.csv")
+
+results = predict_new_data(new_students)
+print(results.head())
+
+# Identify at-risk students
+at_risk = results[results["risk_score"] > 0.7]
+print(f"Students flagged for intervention: {len(at_risk)}")
+```
+
+---
+
+## Key Files & Their Roles
+
+| File | Purpose | Input | Output |
+|------|---------|-------|--------|
+| `main.py` | Orchestrates full pipeline | Config | Trained model, metrics |
+| `src/config.py` | Project constants | — | None (read-only) |
+| `src/data_preprocessing.py` | Load, clean, split | Raw CSV | Clean DataFrame, train/test split |
+| `src/feature_engineering.py` | Encode/scale features | Cleaned DataFrame | Preprocessing pipeline |
+| `src/train.py` | Train model | Features, labels | Fitted classifier |
+| `src/evaluate.py` | Compute metrics | Predictions, labels | Metrics dictionary |
+| `src/predict.py` | Inference on new data | New DataFrame | Risk scores, predictions |
+| `notebooks/eda.ipynb` | Exploratory analysis | Raw data | Visualizations, hypotheses |
+
+---
+
+## Running the System in Production
+
+### For Academic Advisors (Inference Only)
+```bash
+# Identify at-risk students for next week's advising sessions
+python -c "
+from src.predict import predict_new_data
+import pandas as pd
+
+current_cohort = pd.read_csv('data/raw/current_cohort.csv')
+risks = predict_new_data(current_cohort)
+at_risk = risks[risks['risk_score'] > 0.65].sort_values('risk_score', ascending=False)
+
+print(f'Total students: {len(current_cohort)}')
+print(f'At-risk students: {len(at_risk)}')
+print(at_risk[['student_id', 'risk_score', 'recommended_tier']].head(10))
+"
+```
+
+### For Administrators (Retraining)
+```bash
+# Retrain model monthly with new semester data
+python main.py
+# This reloads raw data, refits preprocessing and model, and saves new artifacts
+```
+
+### Separation in Practice
+- **Advisory tool** (inference) never imports `train.py` → can't accidentally retrain
+- **Training script** (main.py) calls all modules → full reproducible pipeline
+- **Preprocessing** fitted only during training → reused exactly during inference
+- **Model** trained only once → loaded fresh for each prediction
+
+---
+
+## Monitoring & Reproducibility
+
+### Track Experiment Runs
+The system logs each training run:
+```bash
+cat logs/experiment_log.csv
+```
+
+Output:
+```
+run_id,timestamp,n_train_samples,model_accuracy,roc_auc,hyperparameters
+run_001,2024-04-01T09:15:32Z,4500,0.876,0.923,{"n_estimators": 300, "max_depth": 8}
+```
+
+### Verify Reproducibility
+```bash
+# Same random seed + same data = identical predictions
+python main.py
+python main.py  # Results will be identical
+```
+
+### Audit Model Behavior
+```python
+from src.predict import predict_new_data
+import pandas as pd
+
+# Verify model uses frozen preprocessing
+test_student = pd.DataFrame({
+    "attendance_rate": [75.0],
+    "midterm_score": [82.0],
+    "final_score": [78.0],
+    "assignment_average": [85.0],
+    "course_id": ["CS101"],
+    "semester": ["Fall2023"]
+})
+
+pred = predict_new_data(test_student)
+print(f"Risk score: {pred['risk_score'].iloc[0]:.3f}")
+# Run again—should be identical
+```
+
+---
+
+## Summary: Why This Architecture Works
+
+| Goal | Mechanism |
+|---|---|
+| **Prevent data leakage** | Train/test split before any fitting; inference uses `transform()` only |
+| **Ensure reproducibility** | Random seed in config; artifacts saved; preprocessing frozen after training |
+| **Support collaboration** | Clear module boundaries; no hidden dependencies; explicit inputs/outputs |
+| **Reduce bugs** | Type hints, docstrings, centralized config; each function tested independently |
+| **Deploy safely** | Prediction logic isolated; changes to training don't affect serving |
+| **Audit decisions** | Metrics logged; preprocessing transparent; model can be inspected |
+| **Scale inference** | Load frozen artifacts once; apply to thousands of students in seconds |
+
+---
 
 ## Setup Instructions
 
@@ -165,9 +373,9 @@ python main.py
 ```
 
 This will execute the complete ML workflow:
-1. Load raw data from `data/raw/telco_churn.csv`
+1. Load raw academic records from `data/raw/academic_records.csv`
 2. Clean and preprocess the data
-3. Save processed data to `data/processed/cleaned_telco_churn.csv`
+3. Save processed data to `data/processed/cleaned_academic_records.csv`
 4. Train a RandomForest classifier
 5. Evaluate model performance
 6. Save model artifacts to `models/`
@@ -365,7 +573,7 @@ python main.py
 ```
 
 Creates:
-- `data/processed/cleaned_telco_churn.csv` — cleaned training data
+- `data/processed/cleaned_academic_records.csv` — cleaned training data
 - `models/random_forest_model.pkl` — fitted model artifact
 - `models/preprocessing_pipeline.pkl` — fitted transformer pipeline
 - `reports/metrics.json` — test set evaluation metrics
@@ -373,23 +581,66 @@ Creates:
 
 ## Pull Request Details (Assignment Ready)
 
-- **PR Title:** `[Refactor] Modularize ML pipeline into reusable functions`
+- **PR Title:** `[Feature] University Student Academic Performance Analysis - Modular ML Pipeline`
 
 - **PR Description (copy to GitHub):**
 
 ```markdown
 ## What Changed
-Refactored ML workflow into modular, maintainable Python functions following production-grade engineering practices.
+Refactored and restructured ML workflow into a modular, production-grade system for analyzing university student academic performance. This project demonstrates best practices for separating data loading, preprocessing, training, and inference to prevent data leakage and ensure reproducibility.
+
+### Problem Statement
+Universities struggle with visibility into student academic performance trends and lack actionable insights to support at-risk students. This system performs exploratory analysis on anonymized academic records to uncover critical correlations between attendance patterns, assessment scores, and overall academic outcomes.
 
 ### Files and Changes
-- `src/config.py` — Centralized all configuration (file paths, random seeds, hyperparameters, column names)
-- `src/data_preprocessing.py` — Data loading, cleaning, and train/test splitting
-- `src/feature_engineering.py` — Preprocessing pipeline (OneHotEncoder + StandardScaler)
+- `src/config.py` — Centralized all configuration (file paths, random seeds, hyperparameters, column names for academic data)
+- `src/data_preprocessing.py` — Data loading, cleaning, and train/test splitting for academic records
+- `src/feature_engineering.py` — Preprocessing pipeline (OneHotEncoder for courses/semesters + StandardScaler for attendance/scores)
 - `src/train.py` — Model training function with explicit parameters and artifact return
 - `src/evaluate.py` — Evaluation function that returns metrics dict (never prints)
-- `src/predict.py` — Prediction function that loads artifacts and transforms new data (never refits)
+- `src/predict.py` — Prediction function that loads artifacts and transforms new student data (never refits—prevents data leakage)
 - `main.py` — Orchestration script that sequences all steps
 - `requirements.txt` — Pinned dependencies for reproducibility
+- `README.md` — Comprehensive documentation on architecture, design principles, and academic use case
+
+### Key Design Principles
+1. **Separation of Concerns** — Each module handles one stage (load → clean → split → fit → train → evaluate → predict)
+2. **Training/Inference Separation** — Preprocessing fitted only on training data; inference uses `transform()` never `fit_transform()`
+3. **Centralized Configuration** — All schema, paths, and hyperparameters in one location
+4. **Single Responsibility** — Each function does one thing and returns data (no side effects or printing)
+5. **Reproducibility** — Explicit random seeds, artifact saving, and experiment logging
+
+### Why This Matters
+- ✅ Prevents data leakage (train/test split before fitting, inference uses frozen transformations)
+- ✅ Enables deterministic results (same seed = identical predictions)
+- ✅ Supports safe deployment (prediction code can't accidentally trigger retraining)
+- ✅ Improves testability (each function independently testable)
+- ✅ Facilitates collaboration (clear boundaries, explicit contracts)
+
+### Running the System
+```bash
+# Training and evaluation
+python main.py
+
+# Predict for current students
+python -c "
+from src.predict import predict_new_data
+import pandas as pd
+
+current_students = pd.read_csv('data/raw/current_cohort.csv')
+risks = predict_new_data(current_students)
+at_risk = risks[risks['risk_score'] > 0.65]
+print(f'Students flagged for intervention: {len(at_risk)}')
+"
+```
+
+### Testing Reproducibility
+Results are guaranteed identical when using the same random seed and data:
+```bash
+python main.py  # Result: metrics.json with test accuracy = 0.876
+python main.py  # Result: identical metrics.json
+```
+```
 - `README.md` — Updated with design principles and architectural rationale
 
 ## Why This Matters
