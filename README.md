@@ -17,6 +17,10 @@ This repository demonstrates a **modular, production-grade machine learning work
 
 The system is designed to support both exploratory analysis and predictive modeling, ensuring insights are both interpretable and actionable.
 
+## Learning Modules
+
+- `notebooks/01_supervised_learning_problem_types.md` - Conceptual guide to identifying supervised learning problem types (classification vs regression, subtypes, metrics, algorithm families, and common pitfalls).
+
 ## Project Structure
 
 ```text
