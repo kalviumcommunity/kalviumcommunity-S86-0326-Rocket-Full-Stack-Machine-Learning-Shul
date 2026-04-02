@@ -20,6 +20,7 @@ The system is designed to support both exploratory analysis and predictive model
 ## Learning Modules
 
 - `notebooks/01_supervised_learning_problem_types.md` - Conceptual guide to identifying supervised learning problem types (classification vs regression, subtypes, metrics, algorithm families, and common pitfalls).
+- `notebooks/02_defining_feature_columns_target_variables.ipynb` - Practical notebook on defining target and feature columns, validating feature eligibility, and preventing leakage through correct train/test preprocessing order.
 
 ## Project Structure
 
