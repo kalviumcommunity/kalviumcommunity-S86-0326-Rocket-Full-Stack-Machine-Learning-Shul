@@ -797,3 +797,257 @@ All without rewriting the entire project. This is what separates experiments fro
 - ✅ Separation of Concerns: Training logic never mixed with inference
 - ✅ Return Data: Functions return values, orchestration layer handles printing/saving
 ```
+
+## Data Splitting: The Foundation of Trustworthy Machine Learning
+
+Before a model can be trusted, it must be evaluated on data it has never seen before. If you train and evaluate on the same dataset, you are not measuring learning, you are measuring memorization.
+
+Splitting data into training and testing sets is the foundational step that ensures honest evaluation. It creates a boundary between the data used to learn patterns and the data used to measure generalization. Without this separation, performance metrics are misleading and model quality cannot be assessed reliably.
+
+This lesson explains why data splitting is essential, how to do it correctly, and how to avoid common leakage mistakes that silently invalidate evaluation.
+
+### Why Data Splitting Is Necessary
+Machine learning models are designed to generalize, to perform well on unseen data. If you evaluate on the same data used for training:
+
+The model may memorize patterns
+Overfitting goes undetected
+Metrics appear artificially high
+Deployment performance collapses
+A proper train-test split simulates the real-world scenario:
+
+Training data represents historical data
+Testing data represents future or unseen examples
+The test set acts as a proxy for production.
+
+If performance on test data is strong, you have evidence of generalization. If it drops significantly compared to training performance, you likely have overfitting.
+
+### The Concept of Training vs Testing Data
+Training Set
+The training set is used to:
+
+Fit preprocessing transformations
+Learn model parameters
+Tune hyperparameters (via cross-validation)
+The model is allowed to see this data.
+
+Testing Set
+The testing set is used to:
+
+Evaluate final model performance
+Compute unbiased metrics
+Simulate unseen real-world inputs
+The model must never learn from this data.
+
+The test set must remain untouched until final evaluation.
+
+### Standard Train-Test Split
+The most common split ratio is:
+
+70%–80% training
+20%–30% testing
+Example using scikit-learn:
+
+```python
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    random_state=42
+)
+```
+
+Important Parameters
+test_size: proportion of dataset used for testing
+random_state: ensures reproducibility
+shuffle=True (default): randomly shuffles before splitting
+Using a fixed random state ensures that the same split can be reproduced later.
+
+### Stratified Splitting (For Classification)
+In classification problems, especially imbalanced ones, simple random splitting can distort class distribution.
+
+Example:
+
+If 10% of samples are positive and 90% are negative, random splitting may produce:
+
+Training set: 12% positive
+Testing set: 5% positive
+This creates evaluation instability.
+
+Stratified splitting preserves class proportions:
+
+```python
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
+)
+```
+
+This ensures both sets maintain the same class balance.
+
+Stratification is essential for binary and multi-class classification problems.
+
+### Splitting Before Any Fitting
+The most critical rule:
+
+Split the data before fitting any preprocessing transformations.
+
+Incorrect:
+
+```python
+# WRONG
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y)
+```
+
+This leaks test data statistics into training.
+
+Correct:
+
+```python
+# RIGHT
+X_train, X_test, y_train, y_test = train_test_split(X, y)
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+```
+
+Preprocessing must be fitted only on training data and applied to test data.
+
+### Time-Based Splitting (For Temporal Data)
+For time-series or chronological datasets, random shuffling is incorrect.
+
+Example:
+
+Predicting future sales based on historical data.
+
+You must split chronologically:
+
+Train on earlier dates
+Test on later dates
+Example:
+
+```python
+df = df.sort_values('Date')
+
+train_size = int(len(df) * 0.8)
+
+train_df = df.iloc[:train_size]
+test_df = df.iloc[train_size:]
+```
+
+Random splitting in time-series introduces future information into training and creates unrealistic evaluation.
+
+Always respect temporal order when modeling time-dependent data.
+
+### Understanding Data Leakage During Splitting
+Common leakage mistakes:
+
+Fitting scalers before splitting
+Performing feature selection on full dataset
+Using target-based statistics computed on entire data
+Performing oversampling before splitting
+Oversampling example:
+
+Incorrect:
+
+```python
+# WRONG
+X_resampled, y_resampled = SMOTE().fit_resample(X, y)
+X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled)
+```
+
+Correct:
+
+```python
+# RIGHT
+X_train, X_test, y_train, y_test = train_test_split(X, y)
+
+X_train_resampled, y_train_resampled = SMOTE().fit_resample(X_train, y_train)
+```
+
+Resampling must only affect training data.
+
+### Verifying the Split
+After splitting, verify:
+
+Shapes
+Class distribution
+Target proportions
+Example:
+
+```python
+print("Training shape:", X_train.shape)
+print("Testing shape:", X_test.shape)
+
+print("Train class distribution:")
+print(y_train.value_counts(normalize=True))
+
+print("Test class distribution:")
+print(y_test.value_counts(normalize=True))
+```
+
+Validation prevents silent imbalance or accidental leakage.
+
+### When to Use Cross-Validation
+Train-test split gives a single evaluation.
+
+Cross-validation:
+
+Splits training data into multiple folds
+Trains multiple times
+Produces more stable performance estimate
+Cross-validation does not replace the test set. It is used only within training data for model selection and hyperparameter tuning.
+
+Final evaluation must always be performed on the held-out test set.
+
+### Best Practices
+Always split before fitting transformations
+Use stratified splitting for classification
+Use time-based split for temporal data
+Fix random_state for reproducibility
+Never touch test set until final evaluation
+Document split strategy in README
+
+### Documenting the Split Strategy
+Example documentation:
+
+## Data Splitting Strategy
+
+- Dataset split into 80% training and 20% testing
+- Stratified split used to preserve class balance
+- random_state=42 for reproducibility
+- Preprocessing fitted only on training data
+- Test set untouched until final evaluation
+
+This ensures transparency and reproducibility.
+
+### Common Mistakes
+Mistake 1: Evaluating on training data Mistake 2: Scaling before splitting Mistake 3: Forgetting stratification Mistake 4: Random split for time-series data Mistake 5: Using test set during hyperparameter tuning
+
+Each of these leads to invalid performance estimates.
+
+### Closing Reflection
+A powerful model trained on improperly split data is not a powerful model — it is a misleading one.
+
+The train-test boundary is sacred. Once contaminated, evaluation becomes meaningless.
+
+Split carefully. Validate the split. Protect the test set.
+
+Honest evaluation is the foundation of trustworthy machine learning.
+
+### Bonus Content 🎁
+This section is optional, and learners who want to explore the topics covered so far can utilize the materials provided below.
+
+Official scikit-learn documentation on cross-validation strategies
+
+Kaggle tutorial on identifying and preventing data leakage
+
+TimeSeriesSplit documentation and examples
