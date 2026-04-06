@@ -1299,3 +1299,314 @@ This section is optional, and learners who want to explore the topics covered so
 Kaggle Tutorial on Data Leakage
 
 Google Machine Learning Crash Course – Data Preparation
+
+## Selecting Numerical and Categorical Features: The Foundation of Proper Preprocessing
+
+Before any model can be trained, your dataset must be clearly structured into meaningful feature groups. One of the most important distinctions in supervised learning is between numerical features and categorical features. This distinction is not cosmetic. It determines how your data will be preprocessed, encoded, scaled, and ultimately interpreted by the model.
+
+Many modeling failures do not happen because of algorithm choice. They happen because features were misclassified, preprocessed incorrectly, or treated uniformly when they required different handling strategies.
+
+This lesson builds the discipline required to correctly identify, separate, validate, and document numerical and categorical features before modeling begins.
+
+### Why Feature Type Selection Matters
+Machine learning models operate on numerical representations. However, not all numerical-looking data should be treated as continuous numbers, and not all text-like data is purely categorical in intent.
+
+If you treat a categorical variable as numerical, you may introduce artificial ordering. If you treat numerical data as categorical, you may lose magnitude information. If you scale binary flags unnecessarily, you may distort meaning.
+
+Feature type selection directly influences:
+
+Encoding strategy
+Scaling decisions
+Model compatibility
+Interpretability
+Risk of leakage
+Training stability
+Selecting feature types correctly ensures that downstream preprocessing behaves predictably and logically.
+
+### Understanding Numerical Features
+Numerical features represent quantities that have magnitude and meaningful mathematical relationships.
+
+These can include:
+
+Continuous values (Age, Salary, Temperature)
+Integer counts (NumberOfPurchases, YearsExperience)
+Ratios and percentages (ConversionRate, DebtToIncomeRatio)
+Time durations (DaysSinceSignup, DeliveryMinutes)
+The defining property of numerical features is that arithmetic operations make sense.
+
+If one customer earns $30,000, the first earns twice as much. That ratio carries meaning.
+
+### Types of Numerical Features
+There are two major categories:
+
+Continuous Numerical Features These can take any value within a range (e.g., 23.4, 23.45, 23.456). Examples include price, height, temperature.
+
+Discrete Numerical Features These are count-based integers (e.g., 0, 1, 2, 3 purchases). They still have magnitude and arithmetic meaning.
+
+Both are treated as numerical features, but sometimes discrete features may require special modeling consideration.
+
+### Understanding Categorical Features
+Categorical features represent labels or categories rather than measurable quantities.
+
+Examples include:
+
+Gender (Male, Female)
+ContractType (Monthly, Annual)
+PaymentMethod (Credit Card, Bank Transfer)
+Region (North, South, East, West)
+ProductCategory (Electronics, Clothing)
+The defining property of categorical features is that arithmetic operations do not make sense.
+
+Assigning Male = 0 and Female = 1 does not mean Female is "greater" than Male. The numbers are placeholders, not magnitudes.
+
+### Types of Categorical Features
+Nominal Features These have no inherent order. For example, colors or payment methods.
+
+Ordinal Features These have a natural ranking. For example:
+
+EducationLevel (High School < Bachelor < Master < PhD)
+SatisfactionRating (Very Dissatisfied < Dissatisfied < Neutral < Satisfied < Very Satisfied)
+Ordinal features are categorical but may be encoded differently from nominal features because ordering carries meaning.
+
+### Why Incorrect Classification Causes Problems
+Treating categorical data as numerical introduces false ordering.
+
+Example:
+
+If you encode ContractType: Month-to-month = 0 One year = 1 Two year = 2
+
+A model might interpret "Two year" as twice as large as "One year," which is meaningless unless that interpretation aligns with business logic.
+
+Treating numerical data as categorical causes loss of precision.
+
+Example:
+
+If you bin Age into: Young (0–30) Middle (31–50) Senior (51+)
+
+You lose the fine-grained relationship between age and outcome.
+
+Feature type selection directly impacts model correctness.
+
+### Practical Approach to Selecting Feature Types
+Step 1: Inspect the Dataset
+Use exploratory methods:
+
+```python
+df.info()
+df.describe()
+df.head()
+```
+
+Look at:
+
+Data types
+Unique value counts
+Distribution patterns
+Be cautious. A column stored as integer may actually represent categories (e.g., 0 = No, 1 = Yes). Storage type does not determine feature type.
+
+Step 2: Identify Target Variable First
+Before selecting features, clearly define your target.
+
+Remove the target column from feature consideration immediately.
+
+```python
+TARGET_COLUMN = "Churn"
+X = df.drop(columns=[TARGET_COLUMN])
+y = df[TARGET_COLUMN]
+```
+
+This prevents accidental leakage.
+
+Step 3: Separate Candidate Numerical Features
+Look for columns where:
+
+Arithmetic relationships make sense
+Values represent measurable quantities
+Scaling could be meaningful
+Example:
+
+```python
+NUMERICAL_FEATURES = [
+    "tenure",
+    "MonthlyCharges",
+    "TotalCharges"
+]
+```
+
+Step 4: Separate Candidate Categorical Features
+Look for columns where:
+
+Values represent categories
+Arithmetic interpretation is invalid
+Encoding is required
+Example:
+
+```python
+CATEGORICAL_FEATURES = [
+    "gender",
+    "Contract",
+    "PaymentMethod",
+    "InternetService"
+]
+```
+
+Step 5: Explicitly Exclude Non-Features
+Remove:
+
+IDs (CustomerID, TransactionID)
+Raw timestamps
+Post-outcome columns
+Text fields unless transformed
+Columns with extreme missingness
+Example:
+
+```python
+EXCLUDED_COLUMNS = ["CustomerID"]
+```
+
+### Handling Edge Cases
+Binary Columns (0/1)
+Binary columns are often numerical in storage but categorical in meaning.
+
+Example: SeniorCitizen = 0 or 1
+
+Even though stored as integers, this represents categories. It can often be treated as numerical (no scaling needed), but conceptually it is categorical.
+
+Be consistent and document your decision.
+
+High-Cardinality Categorical Features
+Columns with many unique values (e.g., ZipCode, ProductID) require careful consideration.
+
+If each value appears only a few times, one-hot encoding may explode dimensionality.
+
+Options include:
+
+Target encoding
+Frequency encoding
+Aggregation into broader groups
+Do not blindly include high-cardinality features without strategy.
+
+Date and Timestamp Columns
+Raw timestamps should not be used directly.
+
+Instead, derive:
+
+DayOfWeek
+Month
+Hour
+IsWeekend
+DaysSinceSignup
+These derived columns can then be categorized appropriately.
+
+### Interaction with Preprocessing
+Feature type determines preprocessing.
+
+Numerical features often require:
+
+Scaling (StandardScaler, MinMaxScaler)
+Outlier treatment
+Imputation (mean/median)
+Categorical features require:
+
+One-hot encoding
+Ordinal encoding
+Imputation (most frequent)
+Incorrect type classification leads to incorrect preprocessing.
+
+### Example: Telco Customer Churn
+Target: Churn (Yes/No)
+
+Numerical Features:
+
+tenure
+MonthlyCharges
+TotalCharges
+Categorical Features:
+
+gender
+SeniorCitizen
+Partner
+Dependents
+Contract
+PaymentMethod
+InternetService
+Excluded:
+
+CustomerID
+Explicit configuration:
+
+```python
+TARGET_COLUMN = "Churn"
+
+NUMERICAL_FEATURES = [
+    "tenure",
+    "MonthlyCharges",
+    "TotalCharges"
+]
+
+CATEGORICAL_FEATURES = [
+    "gender",
+    "SeniorCitizen",
+    "Partner",
+    "Dependents",
+    "PhoneService",
+    "InternetService",
+    "Contract",
+    "PaymentMethod"
+]
+
+EXCLUDED_COLUMNS = ["CustomerID"]
+
+ALL_FEATURES = NUMERICAL_FEATURES + CATEGORICAL_FEATURES
+
+assert TARGET_COLUMN not in ALL_FEATURES
+```
+
+Explicit definition improves clarity, reproducibility, and reviewability.
+
+### Common Mistakes
+Treating ID columns as categorical features.
+Treating encoded categories as continuous values.
+Forgetting to remove target column before type classification.
+Ignoring ordinal relationships.
+Not documenting feature reasoning.
+Allowing inconsistent preprocessing across runs.
+Feature discipline prevents downstream instability.
+
+### Validation Checklist
+Before proceeding to modeling, confirm:
+
+Target column clearly defined.
+Numerical and categorical features explicitly listed.
+No overlap between target and features.
+No ID or post-outcome columns included.
+Each feature passes the prediction-time availability test.
+High-cardinality features handled intentionally.
+Documentation explains reasoning.
+If any item is unclear, revisit your feature selection.
+
+### Closing Reflection
+Selecting numerical and categorical features is not a mechanical step. It is a conceptual one.
+
+Every feature must answer two questions:
+
+Does this represent real information available at prediction time? Does its type reflect how the model should interpret it?
+
+The goal is not to categorize columns quickly. The goal is to categorize them correctly.
+
+Clear feature type selection leads to:
+
+Correct preprocessing
+Stable pipelines
+Honest evaluation
+Reliable production systems
+Structure your features deliberately. Document your reasoning. Validate your boundaries.
+
+Everything that follows in your ML pipeline depends on getting this step right.
+
+### Bonus Content 🎁
+This section is optional, and learners who want to explore the topics covered so far can utilize the materials provided below.
+
+Scikit-learn ColumnTransformer Guide
+
+Google ML Guide – Data Preparation
