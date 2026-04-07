@@ -235,6 +235,197 @@ By separating preprocessing, saving artifacts, and respecting train-test boundar
 
 ---
 
+## Establishing Baseline Models for Honest Evaluation
+
+Before building complex ML models, tuning hyperparameters, or experimenting with ensemble techniques, you must answer one fundamental question:
+
+**Is my model actually better than a trivial solution?**
+
+A **baseline model** is a simple, naive, or heuristic-based approach used as a reference point. It sets the minimum performance threshold that any serious model must exceed. Without a baseline, you have no anchor — you're evaluating performance in a vacuum.
+
+### Why Baselines Matter
+
+Consider a student churn dataset with the following class distribution:
+
+- 80% of students complete their degree
+- 20% of students drop out
+
+You train a model and report:
+
+**Accuracy = 80%**
+
+But a naive model that predicts "No Drop Out" for every single student also achieves exactly 80% accuracy — by doing absolutely nothing. It has never seen a feature. It never will. It wins on accuracy simply because the majority class dominates.
+
+Your complex model, in this scenario, adds **zero value**.
+
+This is why we use baselines. They force context into evaluation. Instead of saying:
+
+*"Our model achieved 83% accuracy."*
+
+You should say:
+
+*"The majority-class baseline achieved 80% accuracy. Our model achieves 83%, a +3 percentage point improvement — and more importantly, it correctly identifies a meaningful portion of at-risk students that the baseline misses entirely."*
+
+**That context is everything.** Raw numbers without a reference point are almost meaningless.
+
+### Baseline Strategies for Classification
+
+#### 1. Majority Class Baseline (Most Common)
+
+This baseline predicts the most frequent class in the training data for every example — no exceptions, no logic.
+
+Example: If 80% of training labels are "Pass", this baseline always predicts "Pass".
+
+```python
+from sklearn.dummy import DummyClassifier
+
+# Always split before fitting — no leakage
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Majority-class baseline
+baseline = DummyClassifier(strategy="most_frequent")
+baseline.fit(X_train, y_train)
+
+predictions = baseline.predict(X_test)
+accuracy = accuracy_score(y_test, predictions)
+```
+
+This baseline is intentionally naive. If your trained model cannot beat it, something is wrong — poor feature engineering, incorrect evaluation metric, data leakage, or class imbalance distorting accuracy.
+
+#### 2. Stratified Random Baseline
+
+Predict classes randomly, but respect the training class distribution. If class 0 appears 80% of the time in training, this baseline predicts 0 roughly 80% of the time — at random.
+
+```python
+baseline = DummyClassifier(strategy="stratified")
+```
+
+Your model should easily beat random stratified guessing. If it doesn't, something is seriously wrong with your pipeline.
+
+#### 3. Rule-Based Heuristic Baseline
+
+Sometimes domain knowledge enables a simple, interpretable rule — and that rule can be surprisingly hard to beat.
+
+Example (Student Churn):
+
+```python
+def heuristic_predict(gpa):
+    return 1 if gpa < 2.0 else 0  # Flag at-risk students
+```
+
+Heuristic baselines are especially valuable in academic settings where simple rules already exist. If your model can't beat the rule an advisor wrote, you need better features — not more epochs.
+
+**Critical:** Any heuristic rule must be derived from training data only. Using test-set observations to define your rule is data leakage.
+
+### What the Baseline Reveals
+
+A strong baseline serves several functions:
+
+| Finding | Interpretation | Action |
+|---------|---|---|
+| Baseline = 95%, Model = 96% | Minimal improvement; check for leakage | Investigate data quality |
+| Baseline = 50%, Model = 85% | Substantial improvement; real signal learned | Model justified; deploy with confidence |
+| Baseline = 92%, Model = 91% | Model underperforms; error in pipeline | Debug preprocessing or feature engineering |
+| Baseline = 60%, Model = 60% | No learning; class imbalance distorting accuracy | Use F1 or ROC-AUC instead of accuracy |
+
+### Implementation in This Project
+
+In [main.py](main.py), we establish and compare both baseline and model metrics:
+
+```python
+# Establish Baseline
+baseline = create_baseline(strategy="most_frequent")
+baseline_metrics = evaluate_baseline(baseline, X_train, X_test, y_train, y_test)
+
+# Train Real Model
+model = train_model(X_train_processed, y_train, ...)
+model_metrics = evaluate_model(model, X_test_processed, y_test)
+
+# Compare Results
+improvement = {
+    "accuracy": model_metrics["accuracy"] - baseline_metrics["accuracy"],
+    "f1": model_metrics["f1"] - baseline_metrics["f1"],
+    ...
+}
+```
+
+When you run `python main.py`, you get side-by-side comparison:
+
+```
+================================================================================
+BASELINE vs MODEL COMPARISON
+================================================================================
+
+Metric               Baseline             Model                Improvement
+────────────────────────────────────────────────────────────────────────────
+accuracy             0.8000               0.8300               +0.0300
+precision            0.7500               0.8100               +0.0600
+recall               0.6000               0.8900               +0.2900
+f1                   0.6667               0.8480               +0.1813
+
+================================================================================
+```
+
+This demonstrates that:
+1. The model beats the baseline on every metric
+2. The improvement is meaningful, especially in recall (+29%)
+3. The model correctly identifies more at-risk students
+
+### Common Baseline Mistakes
+
+| Mistake | Problem | Fix |
+|---------|---------|-----|
+| Skip baseline entirely | No reference point; all evaluation is meaningless | Always compute baseline on held-out data |
+| Fit baseline on full dataset | Baseline learns from test set; inflated performance | Split first, fit baseline only on training data |
+| Compare different metrics | Baseline accuracy vs model F1 is apples-to-oranges | Use exact same metric for both |
+| Derive rules from test set | Hand-crafted heuristics based on test patterns = leakage | Examine training data only when designing rules |
+| Ignore per-class metrics | Majority-class baseline hides poor minority performance | Always inspect precision, recall, F1 per class |
+
+### When a Baseline Is Hard to Beat
+
+Occasionally, the baseline outperforms your model. This is a signal worth investigating rather than ignoring.
+
+Common reasons:
+
+- **Severe class imbalance** — majority class dominates accuracy
+- **Weak or irrelevant features** — data lacks the signal you need
+- **Target is nearly constant** — low variance means the mean/mode is hard to outperform
+- **Data quality problems** — missing values, mislabeled targets, or corrupted features
+- **Pipeline bugs** — leakage, incorrect preprocessing, or evaluation errors
+
+Before declaring success, ask harder questions:
+
+1. Is the improvement statistically significant across multiple runs?
+2. Does the business actually care about this margin?
+3. Does improvement hold on different data splits?
+4. Is the minority class (the one that matters) actually being predicted better?
+
+If most answers are "no," your model may not justify its complexity. Sometimes the right call is to invest more in feature engineering rather than in model architecture.
+
+### Practical Checklist Before Declaring Model Success
+
+Before presenting results, verify:
+
+- ✓ Have I computed a majority-class baseline on held-out data?
+- ✓ Am I using the same metric for baseline and model comparison?
+- ✓ Have I looked at per-class performance (precision, recall, F1)?
+- ✓ Is the improvement consistent across multiple cross-validation folds?
+- ✓ Does improvement translate to meaningful business value for students?
+- ✓ Is the added complexity justified relative to the improvement?
+- ✓ Have I logged baseline metrics in my experiment tracker?
+
+If you can check every box, your results are credible.
+
+### Key Takeaway: Baselines Anchor Reality
+
+A baseline model represents the **minimum viable intelligence** for a problem. It is not a ceiling — it is a floor. Every model you build must justify its existence relative to this floor.
+
+Baselines keep experimentation grounded. They prevent the illusion of progress. They reveal whether your features contain real signal or just noise. They enforce the kind of discipline that separates rigorous ML practice from ad hoc model fitting.
+
+**Build simple first. Measure honestly. Improve deliberately.**
+
+---
+
 ### 3. Centralized Configuration
 All file paths, random seeds, hyperparameters, column schemas, and academic metrics live in `src/config.py`:
 - Change the random seed in one place, it updates everywhere
