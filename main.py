@@ -78,11 +78,11 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         }
     }
 
+    Path(config.METRICS_PATH).parent.mkdir(parents=True, exist_ok=True)
     Path(config.MODEL_PATH).parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, config.MODEL_PATH)
     joblib.dump(preprocessing_pipeline, config.PIPELINE_PATH)
 
-    Path(config.METRICS_PATH).parent.mkdir(parents=True, exist_ok=True)
     with open(config.METRICS_PATH, "w", encoding="utf-8") as metrics_file:
         json.dump(results, metrics_file, indent=2)
 
