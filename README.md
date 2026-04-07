@@ -99,6 +99,142 @@ Each function does exactly one thing:
 
 No function loads AND cleans AND trains. This isolation makes functions independently testable and reusable.
 
+---
+
+## Feature Scaling with StandardScaler
+
+### Why Scaling Numerical Features Is Critical
+
+Many machine learning models are **sensitive to the magnitude of numerical features**. When features exist on drastically different scales:
+- **Age** ranges from 18–70
+- **MonthlyCharges** ranges from 0–150
+- **TotalCharges** ranges from 0–10,000
+
+Without scaling:
+- Gradient-based optimization assigns disproportionate influence to large-magnitude features
+- Distance-based algorithms (k-NN) behave incorrectly (TotalCharges dominates)
+- Model performance becomes unstable and biased
+
+**StandardScaler solves this** by transforming each feature to have:
+- **Mean = 0**
+- **Standard Deviation = 1**
+
+The transformation formula:
+```
+Scaled Value = (x − feature_mean) / feature_std_dev
+```
+
+After scaling, a value represents how many standard deviations it lies from the mean—making all features dimensionless and directly comparable.
+
+### Which Models Require Scaling?
+
+| Model Type | Requires Scaling? | Why |
+|---|---|---|
+| Logistic Regression | **Yes** | Gradient descent depends on feature magnitude |
+| Linear Regression (with regularization) | **Yes** | Ridge/Lasso penalties assume comparable scales |
+| Support Vector Machines (SVM) | **Yes** | Distance computations are scale-sensitive |
+| k-Nearest Neighbors (kNN) | **Yes** | Distance metric biased toward larger features |
+| Neural Networks | **Yes** | Backpropagation sensitive to input magnitude |
+| Decision Trees | **No** | Splits based on thresholds, not magnitude |
+| Random Forest | **No** | Tree-based splits are scale-invariant |
+| Gradient Boosting (XGBoost, LightGBM) | **No** | Tree-based, but scaling can improve stability |
+
+**Our Project:** Uses Random Forest, which doesn't strictly require scaling, but we scale anyway for **consistency, stability, and portability** across algorithms.
+
+### How This Project Implements StandardScaler Correctly
+
+#### Step 1: Split Data BEFORE Scaling
+```python
+# src/data_preprocessing.py → split_data()
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=True
+)
+```
+**Why first?** If you scale before splitting, test data leaks into the scaler's mean/std calculation.
+
+#### Step 2: Fit Scaler on Training Data ONLY
+```python
+# main.py
+preprocessing_pipeline = build_preprocessing_pipeline(...)
+X_train_processed = preprocessing_pipeline.fit_transform(X_train)  # ← FIT ONLY HERE
+```
+The scaler computes statistics (mean, std) from training data and remembers them.
+
+#### Step 3: Transform Test Data (Never Refit)
+```python
+# main.py
+X_test_processed = preprocessing_pipeline.transform(X_test)  # ← NEVER FIT HERE
+```
+Uses the **same mean/std** learned from training. This prevents leakage.
+
+#### Step 4: Save Scaler for Production
+```python
+# main.py
+joblib.dump(preprocessing_pipeline, config.PIPELINE_PATH)
+```
+When predicting on new students, load this saved scaler.
+
+#### Step 5: Inference Uses Transform Only
+```python
+# src/predict.py
+transformed = pipeline.transform(new_data)  # ← NOT fit_transform()
+predicted_class = model.predict(transformed)
+```
+Never refit the scaler during prediction. Always use the training distribution.
+
+### ColumnTransformer: Scaling Only Numerical Features
+
+Categorical features (e.g., Contract type, Payment method) should NOT be scaled—they're one-hot encoded instead.
+
+Our pipeline separates concerns:
+
+```python
+# src/feature_engineering.py
+preprocessing_pipeline = ColumnTransformer(
+    transformers=[
+        ("categorical", OneHotEncoder(...), CATEGORICAL_COLUMNS),
+        ("numerical", StandardScaler(), NUMERICAL_COLUMNS),
+    ]
+)
+```
+
+**Result:**
+- **Categorical features** → One-hot encoded (0/1 flags)
+- **Numerical features** (tenure, MonthlyCharges, TotalCharges) → Standardized (mean 0, std 1)
+- **Other columns** → Dropped
+
+### Verifying Scaling Worked
+
+After scaling, numerical features should have:
+```python
+print(X_train_scaled.mean(axis=0))  # Should be ≈ 0
+print(X_train_scaled.std(axis=0))   # Should be ≈ 1
+```
+
+Minor floating-point deviations (1e-16) are normal.
+
+### Common Mistakes (Avoided in This Project)
+
+| Mistake | Consequence | Our Prevention |
+|---|---|---|
+| Scale before splitting | Test data leaks into scaler | We split first |
+| Fit scaler on full dataset | Test performance inflated | We fit only on training |
+| Refit scaler during inference | Predictions become inconsistent | We use `transform()` only |
+| Scale categorical features | Encoding treated as numeric | We use ColumnTransformer |
+| Forget to save scaler | Can't make predictions in production | We save with `joblib.dump()` |
+| Call `fit_transform()` on test | Data leakage | We explicitly call `transform()` |
+
+### Why This Prevents Academic System Failures
+
+In an academic advising system, scaling errors would:
+- **Inflate metrics** → Advisor thinks model is better than it is
+- **Inconsistent predictions** → Same student gets different risk scores
+- **Deployment failures** → Scaler saved with outdated statistics
+
+By separating preprocessing, saving artifacts, and respecting train-test boundaries, we **prevent silent failures** that undermine student support systems.
+
+---
+
 ### 3. Centralized Configuration
 All file paths, random seeds, hyperparameters, column schemas, and academic metrics live in `src/config.py`:
 - Change the random seed in one place, it updates everywhere
