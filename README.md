@@ -235,6 +235,238 @@ By separating preprocessing, saving artifacts, and respecting train-test boundar
 
 ---
 
+## Normalizing Features Using MinMaxScaler
+
+While this project uses **StandardScaler**, it's important to understand **MinMaxScaler** as an alternative normalization technique. Both perform feature scaling, but with fundamentally different approaches and use cases.
+
+### What Is MinMaxScaler?
+
+MinMaxScaler rescales numerical features into a **fixed bounded range**, typically [0, 1]. This differs from StandardScaler, which centers data around zero with unbounded output.
+
+**Transformation Formula:**
+```
+x_scaled = (x - x_min) / (x_max - x_min)
+```
+
+**Result:**
+- The smallest training value becomes 0
+- The largest training value becomes 1
+- All other values fall proportionally between 0 and 1
+- The relative spacing between values is **preserved**
+
+**Concrete Example:**
+
+Given training values: [20, 40, 60, 80, 100, 120]
+
+For value = 70:
+```
+(70 - 20) / (120 - 20) = 50 / 100 = 0.5
+```
+
+After scaling: all values fall in [0, 1] with relative positions preserved.
+
+### StandardScaler vs MinMaxScaler: When to Use Each
+
+| Aspect | StandardScaler | MinMaxScaler |
+|---|---|---|
+| **Transformation** | Centers to mean=0, scales to std=1 | Scales to range [0, 1] |
+| **Formula** | (x - mean) / std | (x - min) / (max - min) |
+| **Output Range** | Unbounded (typically -3 to +3) | Bounded [0, 1] |
+| **Assumption** | Works best for normally distributed data | No distribution assumption |
+| **Outlier Sensitivity** | Less sensitive | **Highly sensitive** |
+| **Best For** | Linear models, SVM, Neural Networks | Distance-based models, bounded inputs |
+
+### When MinMaxScaler Is Beneficial
+
+MinMaxScaler excels for:
+
+1. **Distance-Based Models**
+   - k-Nearest Neighbors (kNN)
+   - k-Means Clustering
+   - Support Vector Machines (SVM) with RBF kernel
+
+2. **Neural Networks**
+   - Input features should be bounded to prevent activation saturation
+   - Sigmoid and tanh activation functions perform best with inputs in [0, 1] range
+   - Helps gradient descent converge faster
+
+3. **Algorithms Sensitive to Feature Magnitude**
+   - Principal Component Analysis (PCA)
+   - Recommender systems
+   - Anomaly detection based on distance metrics
+
+### When MinMaxScaler Is NOT Necessary
+
+MinMaxScaler is **unnecessary** for:
+
+- **Decision Trees** — splits based on thresholds, not magnitudes
+- **Random Forest** — scale-invariant (our project uses this)
+- **Gradient Boosting** (XGBoost, LightGBM) — tree-based, scale-invariant
+- **Naive Bayes** — uses probability distributions, not magnitudes
+
+**Our Project:** Uses Random Forest, which doesn't require normalization. However, understanding MinMaxScaler is crucial for applications like image classification (pixel values 0-255 → [0, 1]), distance-based clustering, or neural network pipelines.
+
+### Correct Implementation: Preventing Data Leakage with MinMaxScaler
+
+**Incorrect Approach (Data Leakage):**
+```python
+# WRONG: Fitting on full dataset before splitting
+scaler = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)  # Uses min/max from ENTIRE dataset
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y)
+```
+Problem: The scaler computed min/max using test data. This is leakage.
+
+**Correct Approach (Leakage-Free):**
+```python
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+
+# Step 1: Split FIRST
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Step 2: Fit scaler ONLY on training data
+scaler = MinMaxScaler()
+X_train_scaled = scaler.fit_transform(X_train)  # Learns x_min and x_max from training only
+
+# Step 3: Transform test data using the SAME scaler
+X_test_scaled = scaler.transform(X_test)  # Never refit, applies training min/max
+```
+
+**Important:** Test values may fall outside [0, 1] if they exceed the training range. This is **expected and correct** — never recompute min/max on test data.
+
+### Handling Outliers: MinMaxScaler's Vulnerability
+
+MinMaxScaler is **highly sensitive to outliers**. A single extreme value stretches the range, compressing the majority of values into a narrow band.
+
+**Example Problem:**
+```
+Original values:   [100, 200, 300, 400, 500, 600, 700, 800, 900, 50000]
+After MinMaxScaler: [0.00, 0.002, 0.004, 0.006, 0.008, 0.010, 0.012, 0.014, 0.016, 1.00]
+```
+
+The single outlier (50,000) compressed all other values into [0, 0.016], destroying the model's ability to distinguish between them.
+
+**Solutions:**
+
+1. **Cap outliers at a percentile:**
+   ```python
+   upper_limit = X_train['TotalCharges'].quantile(0.95)
+   X_train['TotalCharges'] = X_train['TotalCharges'].clip(upper=upper_limit)
+   ```
+
+2. **Use RobustScaler instead** (immune to outliers):
+   ```python
+   from sklearn.preprocessing import RobustScaler
+   scaler = RobustScaler()
+   X_train_scaled = scaler.fit_transform(X_train)
+   ```
+
+3. **Apply log transformation before scaling** (for skewed distributions):
+   ```python
+   X_train['TotalCharges_log'] = np.log1p(X_train['TotalCharges'])
+   scaler = MinMaxScaler()
+   X_train_scaled = scaler.fit_transform(X_train[['TotalCharges_log']])
+   ```
+
+Always **inspect feature distributions** before choosing a normalization strategy. Plot histograms, box plots, and examine statistics for outliers.
+
+### Verifying MinMaxScaler Output
+
+After normalization, verify that scaling worked:
+
+```python
+print(X_train_scaled.min(axis=0))  # Should be ≈ 0.0
+print(X_train_scaled.max(axis=0))  # Should be ≈ 1.0
+```
+
+Expected output:
+```
+Min: [0.0, 0.0, 0.0]
+Max: [1.0, 1.0, 1.0]
+```
+
+### Saving MinMaxScaler for Production
+
+The fitted scaler must be saved to ensure consistent transformation at prediction time:
+
+```python
+import joblib
+
+# After fitting on training data
+scaler = MinMaxScaler()
+X_train_scaled = scaler.fit_transform(X_train[NUMERICAL_FEATURES])
+
+# Save the fitted scaler
+joblib.dump(scaler, 'models/minmax_scaler.pkl')
+
+# Load and use at prediction time
+scaler = joblib.load('models/minmax_scaler.pkl')
+X_new_scaled = scaler.transform(X_new[NUMERICAL_FEATURES])  # Only transform, never refit
+```
+
+**Critical:** Never call `fit()` or `fit_transform()` on new data. Always use `transform()` only.
+
+### Using MinMaxScaler with ColumnTransformer
+
+For production-ready pipelines that use MinMaxScaler instead of StandardScaler:
+
+```python
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
+from sklearn.pipeline import Pipeline
+
+# Define preprocessing
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', MinMaxScaler(), NUMERICAL_FEATURES),  # Normalize to [0, 1]
+        ('cat', OneHotEncoder(drop='first'), CATEGORICAL_FEATURES)  # One-hot encode
+    ],
+    remainder='drop'
+)
+
+# Create full pipeline
+model_pipeline = Pipeline(steps=[
+    ('preprocessing', preprocessor),
+    ('classifier', LogisticRegression(max_iter=1000))
+])
+
+# Fit pipeline on training data only
+model_pipeline.fit(X_train, y_train)
+
+# Evaluate on test data
+score = model_pipeline.score(X_test, y_test)
+
+# Save entire pipeline (scalers + model)
+joblib.dump(model_pipeline, 'models/full_pipeline.pkl')
+```
+
+This ensures no leakage and clean, atomic deployment.
+
+### Common MinMaxScaler Mistakes
+
+| Mistake | Problem | Fix |
+|---|---|---|
+| Normalize before splitting | Test data leaks into min/max | Split first, normalize second |
+| Normalize categorical features | Meaningless for categories | Apply only to numerical features |
+| Refit scaler at inference | Predictions become inconsistent | Use `transform()` only, never `fit()` |
+| Ignore outliers | Most values compressed into narrow band | Inspect distributions, cap/transform as needed |
+| Forget to save scaler | Can't reproduce transformations | Save with `joblib.dump()` |
+| Scale target variable | Target gets normalized | Separate target before preprocessing |
+
+### Key Takeaway: StandardScaler vs MinMaxScaler
+
+- **StandardScaler:** Use for normally distributed data, linear models, SVM, neural networks (unless activation requires bounded input)
+- **MinMaxScaler:** Use for bounded-input requirements (neural nets with sigmoid), distance-based models, bounded output interpretability
+- **Both require:** Splitting first, fitting only on training data, saving for production
+- **Neither required for:** Tree-based models (Random Forest, XGBoost, etc.)
+
+Choose scaling strategy based on your **data distribution** and **model requirements**, not randomly. Guard against leakage rigorously. Build reproducible pipelines.
+
+---
+
 ### 3. Centralized Configuration
 All file paths, random seeds, hyperparameters, column schemas, and academic metrics live in `src/config.py`:
 - Change the random seed in one place, it updates everywhere
