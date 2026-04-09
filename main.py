@@ -6,6 +6,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.metrics import precision_recall_curve, precision_score, recall_score
 from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
@@ -95,7 +96,46 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
     )
 
     cv_auc = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="roc_auc")
+    cv_precision = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="precision")
+    cv_recall = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="recall")
     cv_f1 = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="f1")
+
+    y_prob = model.predict_proba(X_test_processed)[:, 1]
+    threshold_metrics: dict[str, dict[str, float]] = {}
+    for threshold in config.THRESHOLD_CANDIDATES:
+        y_custom = (y_prob >= threshold).astype(int)
+        threshold_metrics[f"{threshold:.2f}"] = {
+            "precision": round(float(precision_score(y_test, y_custom, zero_division=0)), 4),
+            "recall": round(float(recall_score(y_test, y_custom, zero_division=0)), 4),
+        }
+
+    precisions, recalls, thresholds = precision_recall_curve(y_test, y_prob)
+    # precision_recall_curve returns one more precision/recall point than thresholds.
+    pr_curve_df = pd.DataFrame(
+        {
+            "threshold": thresholds,
+            "precision": precisions[:-1],
+            "recall": recalls[:-1],
+        }
+    )
+
+    valid_idx = np.where(recalls[:-1] >= config.TARGET_RECALL)[0]
+    best_threshold_summary: dict[str, float | None]
+    if len(valid_idx) > 0:
+        best_idx = int(valid_idx[np.argmax(precisions[:-1][valid_idx])])
+        best_threshold_summary = {
+            "target_recall": round(config.TARGET_RECALL, 4),
+            "threshold": round(float(thresholds[best_idx]), 4),
+            "precision": round(float(precisions[best_idx]), 4),
+            "recall": round(float(recalls[best_idx]), 4),
+        }
+    else:
+        best_threshold_summary = {
+            "target_recall": round(config.TARGET_RECALL, 4),
+            "threshold": None,
+            "precision": None,
+            "recall": None,
+        }
 
     feature_names = preprocessing_pipeline.get_feature_names_out()
     coefficients = model.coef_[0]
@@ -114,8 +154,16 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         "cross_validation": {
             "cv_roc_auc_mean": round(float(cv_auc.mean()), 4),
             "cv_roc_auc_std": round(float(cv_auc.std()), 4),
+            "cv_precision_mean": round(float(cv_precision.mean()), 4),
+            "cv_precision_std": round(float(cv_precision.std()), 4),
+            "cv_recall_mean": round(float(cv_recall.mean()), 4),
+            "cv_recall_std": round(float(cv_recall.std()), 4),
             "cv_f1_mean": round(float(cv_f1.mean()), 4),
             "cv_f1_std": round(float(cv_f1.std()), 4),
+        },
+        "threshold_analysis": {
+            "candidate_thresholds": threshold_metrics,
+            "best_for_target_recall": best_threshold_summary,
         },
         "improvement": {
             "accuracy": round(model_metrics["accuracy"] - baseline_metrics["accuracy"], 4),
@@ -139,6 +187,7 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         json.dump(results, metrics_file, indent=2)
 
     coef_df.to_csv(config.COEFFICIENTS_PATH, index=False)
+    pr_curve_df.to_csv(config.PR_CURVE_PATH, index=False)
 
     sample_predictions = predict_new_data(X_test.head(5), model=model, pipeline=preprocessing_pipeline)
     sample_predictions.to_csv(config.PREDICTIONS_PATH, index=False)
@@ -175,6 +224,37 @@ if __name__ == "__main__":
         f"{results['cross_validation']['cv_f1_mean']:.4f} "
         f"+/- {results['cross_validation']['cv_f1_std']:.4f}"
     )
+    print(
+        "Precision: "
+        f"{results['cross_validation']['cv_precision_mean']:.4f} "
+        f"+/- {results['cross_validation']['cv_precision_std']:.4f}"
+    )
+    print(
+        "Recall:    "
+        f"{results['cross_validation']['cv_recall_mean']:.4f} "
+        f"+/- {results['cross_validation']['cv_recall_std']:.4f}"
+    )
+
+    print("\nThreshold Analysis (Precision/Recall)")
+    print("-" * 80)
+    for threshold, metrics in results["threshold_analysis"]["candidate_thresholds"].items():
+        print(
+            f"threshold={threshold} | precision={metrics['precision']:.4f} "
+            f"| recall={metrics['recall']:.4f}"
+        )
+
+    best = results["threshold_analysis"]["best_for_target_recall"]
+    if best["threshold"] is not None:
+        print(
+            "best threshold for target recall "
+            f"{best['target_recall']:.2f}: {best['threshold']:.4f} "
+            f"(precision={best['precision']:.4f}, recall={best['recall']:.4f})"
+        )
+    else:
+        print(
+            "No threshold met target recall "
+            f"{best['target_recall']:.2f}; consider retraining or feature improvements."
+        )
 
     print("\nConfusion Matrix Counts (TN, FP, FN, TP)")
     print("-" * 80)
