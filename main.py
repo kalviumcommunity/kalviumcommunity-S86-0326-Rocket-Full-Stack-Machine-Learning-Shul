@@ -119,6 +119,10 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         },
         "improvement": {
             "accuracy": round(model_metrics["accuracy"] - baseline_metrics["accuracy"], 4),
+            "balanced_accuracy": round(
+                model_metrics["balanced_accuracy"] - baseline_metrics["balanced_accuracy"],
+                4,
+            ),
             "precision": round(model_metrics["precision"] - baseline_metrics["precision"], 4),
             "recall": round(model_metrics["recall"] - baseline_metrics["recall"], 4),
             "f1": round(model_metrics["f1"] - baseline_metrics["f1"], 4),
@@ -152,7 +156,7 @@ if __name__ == "__main__":
     print(f"\n{'Metric':<20} {'Baseline':<20} {'Model':<20} {'Improvement':<15}")
     print("-" * 80)
 
-    for metric in ["accuracy", "precision", "recall", "f1", "roc_auc"]:
+    for metric in ["accuracy", "balanced_accuracy", "precision", "recall", "f1", "roc_auc"]:
         baseline_val = results["baseline"][metric]
         model_val = results["model"][metric]
         improvement = results["improvement"][metric]
@@ -170,6 +174,19 @@ if __name__ == "__main__":
         "F1:      "
         f"{results['cross_validation']['cv_f1_mean']:.4f} "
         f"+/- {results['cross_validation']['cv_f1_std']:.4f}"
+    )
+
+    print("\nConfusion Matrix Counts (TN, FP, FN, TP)")
+    print("-" * 80)
+    print(
+        "Baseline: "
+        f"({int(results['baseline']['tn'])}, {int(results['baseline']['fp'])}, "
+        f"{int(results['baseline']['fn'])}, {int(results['baseline']['tp'])})"
+    )
+    print(
+        "Model:    "
+        f"({int(results['model']['tn'])}, {int(results['model']['fp'])}, "
+        f"{int(results['model']['fn'])}, {int(results['model']['tp'])})"
     )
 
     print("=" * 80 + "\n")

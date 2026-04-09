@@ -39,7 +39,15 @@ def evaluate_baseline(
     Returns:
         Dictionary of baseline metrics (accuracy, precision, recall, f1, roc_auc).
     """
-    from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+    from sklearn.metrics import (
+        accuracy_score,
+        balanced_accuracy_score,
+        confusion_matrix,
+        f1_score,
+        precision_score,
+        recall_score,
+        roc_auc_score,
+    )
 
     # Fit baseline on training data only (no leakage)
     baseline.fit(X_train, y_train)
@@ -47,12 +55,19 @@ def evaluate_baseline(
     # Predict on test data
     predictions = baseline.predict(X_test)
 
+    tn, fp, fn, tp = confusion_matrix(y_test, predictions).ravel()
+
     # Compute metrics
     metrics = {
         "accuracy": float(accuracy_score(y_test, predictions)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_test, predictions)),
         "precision": float(precision_score(y_test, predictions, zero_division=0)),
         "recall": float(recall_score(y_test, predictions, zero_division=0)),
         "f1": float(f1_score(y_test, predictions, zero_division=0)),
+        "tn": float(tn),
+        "fp": float(fp),
+        "fn": float(fn),
+        "tp": float(tp),
     }
 
     # Most baseline strategies expose class probabilities, enabling ROC-AUC comparison.
