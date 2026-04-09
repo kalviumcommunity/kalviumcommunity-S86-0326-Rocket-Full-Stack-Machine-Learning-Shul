@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 
 import joblib
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import cross_val_score
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
 
 from src.baseline import create_baseline, evaluate_baseline
 from src.config import Config
@@ -60,21 +65,64 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         X_train=X_train_processed,
         y_train=y_train,
         random_state=config.RANDOM_STATE,
-        n_estimators=config.N_ESTIMATORS,
-        max_depth=config.MAX_DEPTH,
+        max_iter=config.MAX_ITER,
+        c=config.C,
+        class_weight=config.CLASS_WEIGHT,
     )
 
     model_metrics = evaluate_model(model, X_test_processed, y_test)
+
+    # Run cross-validation on the raw training split via a full pipeline to avoid leakage.
+    cv_pipeline = Pipeline(
+        steps=[
+            (
+                "preprocessor",
+                build_preprocessing_pipeline(
+                    categorical_cols=config.CATEGORICAL_COLUMNS,
+                    numerical_cols=config.NUMERICAL_COLUMNS,
+                ),
+            ),
+            (
+                "model",
+                LogisticRegression(
+                    random_state=config.RANDOM_STATE,
+                    max_iter=config.MAX_ITER,
+                    C=config.C,
+                    class_weight=config.CLASS_WEIGHT,
+                ),
+            ),
+        ]
+    )
+
+    cv_auc = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="roc_auc")
+    cv_f1 = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="f1")
+
+    feature_names = preprocessing_pipeline.get_feature_names_out()
+    coefficients = model.coef_[0]
+    coef_df = pd.DataFrame(
+        {
+            "feature": feature_names,
+            "coefficient": coefficients,
+            "odds_ratio": np.exp(coefficients),
+        }
+    ).sort_values("coefficient", key=np.abs, ascending=False)
 
     # --- Compare Results ---
     results = {
         "baseline": baseline_metrics,
         "model": model_metrics,
+        "cross_validation": {
+            "cv_roc_auc_mean": round(float(cv_auc.mean()), 4),
+            "cv_roc_auc_std": round(float(cv_auc.std()), 4),
+            "cv_f1_mean": round(float(cv_f1.mean()), 4),
+            "cv_f1_std": round(float(cv_f1.std()), 4),
+        },
         "improvement": {
             "accuracy": round(model_metrics["accuracy"] - baseline_metrics["accuracy"], 4),
             "precision": round(model_metrics["precision"] - baseline_metrics["precision"], 4),
             "recall": round(model_metrics["recall"] - baseline_metrics["recall"], 4),
             "f1": round(model_metrics["f1"] - baseline_metrics["f1"], 4),
+            "roc_auc": round(model_metrics["roc_auc"] - baseline_metrics["roc_auc"], 4),
         }
     }
 
@@ -85,6 +133,8 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
 
     with open(config.METRICS_PATH, "w", encoding="utf-8") as metrics_file:
         json.dump(results, metrics_file, indent=2)
+
+    coef_df.to_csv(config.COEFFICIENTS_PATH, index=False)
 
     sample_predictions = predict_new_data(X_test.head(5), model=model, pipeline=preprocessing_pipeline)
     sample_predictions.to_csv(config.PREDICTIONS_PATH, index=False)
@@ -102,12 +152,25 @@ if __name__ == "__main__":
     print(f"\n{'Metric':<20} {'Baseline':<20} {'Model':<20} {'Improvement':<15}")
     print("-" * 80)
 
-    for metric in ["accuracy", "precision", "recall", "f1"]:
+    for metric in ["accuracy", "precision", "recall", "f1", "roc_auc"]:
         baseline_val = results["baseline"][metric]
         model_val = results["model"][metric]
         improvement = results["improvement"][metric]
 
         print(f"{metric:<20} {baseline_val:<20.4f} {model_val:<20.4f} {improvement:+.4f}")
+
+    print("\nCross-Validation (train split, 5-fold)")
+    print("-" * 80)
+    print(
+        "ROC-AUC: "
+        f"{results['cross_validation']['cv_roc_auc_mean']:.4f} "
+        f"+/- {results['cross_validation']['cv_roc_auc_std']:.4f}"
+    )
+    print(
+        "F1:      "
+        f"{results['cross_validation']['cv_f1_mean']:.4f} "
+        f"+/- {results['cross_validation']['cv_f1_std']:.4f}"
+    )
 
     print("=" * 80 + "\n")
 

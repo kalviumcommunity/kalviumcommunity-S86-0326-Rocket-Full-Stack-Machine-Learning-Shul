@@ -55,7 +55,11 @@ def evaluate_baseline(
         "f1": float(f1_score(y_test, predictions, zero_division=0)),
     }
 
-    # DummyClassifier doesn't support predict_proba, so roc_auc is N/A
-    metrics["roc_auc"] = float("nan")
+    # Most baseline strategies expose class probabilities, enabling ROC-AUC comparison.
+    if hasattr(baseline, "predict_proba"):
+        probabilities = baseline.predict_proba(X_test)[:, 1]
+        metrics["roc_auc"] = float(roc_auc_score(y_test, probabilities))
+    else:
+        metrics["roc_auc"] = float("nan")
 
     return metrics

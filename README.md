@@ -25,6 +25,7 @@ The system is designed to support both exploratory analysis and predictive model
 - `notebooks/04_training_linear_regression.md` - Practical lesson on training and evaluating a Linear Regression model, comparing it against a baseline, and interpreting coefficients safely.
 - `notebooks/05_evaluating_regression_models_using_mae.md` - Practical lesson on evaluating regression predictions with MAE, comparing against a baseline, and using cross-validation for stability.
 - `notebooks/06_evaluating_regression_models_using_mse_and_r2.md` - Practical lesson on evaluating regression predictions with MSE and R², comparing against a baseline, and using cross-validation for stability.
+- `notebooks/07_training_logistic_regression_classification.md` - Practical lesson on training Logistic Regression for binary classification, comparing against a majority baseline, evaluating with ROC-AUC and classification metrics, and interpreting odds ratios.
 
 ## Project Structure
 

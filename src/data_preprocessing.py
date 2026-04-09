@@ -84,7 +84,11 @@ def split_data(
         raise ValueError(f"Target column '{target_column}' not found in DataFrame")
 
     X = df.drop(columns=[target_column])
-    y = df[target_column].replace({"Yes": 1, "No": 0}).astype(int)
+    y = df[target_column].map({"Yes": 1, "No": 0})
+    if y.isna().any():
+        invalid_labels = sorted(df.loc[y.isna(), target_column].astype(str).unique().tolist())
+        raise ValueError(f"Unsupported target labels found: {invalid_labels}. Expected only 'Yes'/'No'.")
+    y = y.astype(int)
 
     stratify_labels = y if stratify else None
     X_train, X_test, y_train, y_test = train_test_split(
