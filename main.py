@@ -6,8 +6,17 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics import precision_recall_curve, precision_score, recall_score
-from sklearn.model_selection import cross_val_score
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_recall_curve,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 
@@ -42,7 +51,7 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
     Path(config.PROCESSED_DATA_PATH).parent.mkdir(parents=True, exist_ok=True)
     cleaned_df.to_csv(config.PROCESSED_DATA_PATH, index=False)
 
-    X_train, X_test, y_train, y_test = split_data(
+    X_train_full, X_test, y_train_full, y_test = split_data(
         cleaned_df,
         target_column=config.TARGET_COLUMN,
         test_size=config.TEST_SIZE,
@@ -50,9 +59,17 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         stratify=True,
     )
 
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train_full,
+        y_train_full,
+        test_size=config.VALIDATION_SIZE,
+        random_state=config.RANDOM_STATE,
+        stratify=y_train_full,
+    )
+
     # --- Establish Baseline ---
     baseline = create_baseline(strategy="most_frequent")
-    baseline_metrics = evaluate_baseline(baseline, X_train, X_test, y_train, y_test)
+    baseline_metrics = evaluate_baseline(baseline, X_train_full, X_test, y_train_full, y_test)
 
     # --- Train Real Model ---
     preprocessing_pipeline = build_preprocessing_pipeline(
@@ -60,6 +77,7 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         numerical_cols=config.NUMERICAL_COLUMNS,
     )
     X_train_processed = preprocessing_pipeline.fit_transform(X_train)
+    X_val_processed = preprocessing_pipeline.transform(X_val)
     X_test_processed = preprocessing_pipeline.transform(X_test)
 
     model = train_model(
@@ -71,7 +89,7 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         class_weight=config.CLASS_WEIGHT,
     )
 
-    model_metrics = evaluate_model(model, X_test_processed, y_test)
+    model_metrics_default = evaluate_model(model, X_test_processed, y_test)
 
     # Run cross-validation on the raw training split via a full pipeline to avoid leakage.
     cv_pipeline = Pipeline(
@@ -95,21 +113,37 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         ]
     )
 
-    cv_auc = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="roc_auc")
-    cv_precision = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="precision")
-    cv_recall = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="recall")
-    cv_f1 = cross_val_score(cv_pipeline, X_train, y_train, cv=5, scoring="f1")
+    cv_auc = cross_val_score(cv_pipeline, X_train_full, y_train_full, cv=5, scoring="roc_auc")
+    cv_precision = cross_val_score(cv_pipeline, X_train_full, y_train_full, cv=5, scoring="precision")
+    cv_recall = cross_val_score(cv_pipeline, X_train_full, y_train_full, cv=5, scoring="recall")
+    cv_f1 = cross_val_score(cv_pipeline, X_train_full, y_train_full, cv=5, scoring="f1")
 
-    y_prob = model.predict_proba(X_test_processed)[:, 1]
+    val_prob = model.predict_proba(X_val_processed)[:, 1]
+    threshold_f1: dict[float, float] = {}
+    for threshold in config.F1_THRESHOLD_GRID:
+        val_pred = (val_prob >= threshold).astype(int)
+        threshold_f1[threshold] = float(f1_score(y_val, val_pred, zero_division=0))
+
+    best_f1_threshold = max(threshold_f1, key=threshold_f1.get)
+    best_val_f1 = threshold_f1[best_f1_threshold]
+
+    test_prob = model.predict_proba(X_test_processed)[:, 1]
+    test_pred_default = (test_prob >= 0.5).astype(int)
+    test_pred_optimized = (test_prob >= best_f1_threshold).astype(int)
+
+    model_metrics_optimized = _compute_binary_metrics(y_test, test_pred_optimized)
+    model_metrics_optimized["roc_auc"] = float(roc_auc_score(y_test, test_prob))
+
     threshold_metrics: dict[str, dict[str, float]] = {}
     for threshold in config.THRESHOLD_CANDIDATES:
-        y_custom = (y_prob >= threshold).astype(int)
+        y_custom = (test_prob >= threshold).astype(int)
         threshold_metrics[f"{threshold:.2f}"] = {
             "precision": round(float(precision_score(y_test, y_custom, zero_division=0)), 4),
             "recall": round(float(recall_score(y_test, y_custom, zero_division=0)), 4),
+            "f1": round(float(f1_score(y_test, y_custom, zero_division=0)), 4),
         }
 
-    precisions, recalls, thresholds = precision_recall_curve(y_test, y_prob)
+    precisions, recalls, thresholds = precision_recall_curve(y_test, test_prob)
     # precision_recall_curve returns one more precision/recall point than thresholds.
     pr_curve_df = pd.DataFrame(
         {
@@ -137,8 +171,33 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
             "recall": None,
         }
 
-    feature_names = preprocessing_pipeline.get_feature_names_out()
-    coefficients = model.coef_[0]
+    threshold_tuning = {
+        "optimized_for": "f1",
+        "optimized_on": "validation",
+        "evaluation_on": "test",
+        "default_threshold": 0.5,
+        "best_threshold": round(float(best_f1_threshold), 4),
+        "best_validation_f1": round(float(best_val_f1), 4),
+        "test_f1_default": round(float(f1_score(y_test, test_pred_default, zero_division=0)), 4),
+        "test_f1_optimized": round(float(model_metrics_optimized["f1"]), 4),
+    }
+
+    final_pipeline = build_preprocessing_pipeline(
+        categorical_cols=config.CATEGORICAL_COLUMNS,
+        numerical_cols=config.NUMERICAL_COLUMNS,
+    )
+    X_train_full_processed = final_pipeline.fit_transform(X_train_full)
+    final_model = train_model(
+        X_train=X_train_full_processed,
+        y_train=y_train_full,
+        random_state=config.RANDOM_STATE,
+        max_iter=config.MAX_ITER,
+        c=config.C,
+        class_weight=config.CLASS_WEIGHT,
+    )
+
+    feature_names = final_pipeline.get_feature_names_out()
+    coefficients = final_model.coef_[0]
     coef_df = pd.DataFrame(
         {
             "feature": feature_names,
@@ -150,7 +209,10 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
     # --- Compare Results ---
     results = {
         "baseline": baseline_metrics,
-        "model": model_metrics,
+        "model": {
+            "default_threshold": model_metrics_default,
+            "optimized_threshold": model_metrics_optimized,
+        },
         "cross_validation": {
             "cv_roc_auc_mean": round(float(cv_auc.mean()), 4),
             "cv_roc_auc_std": round(float(cv_auc.std()), 4),
@@ -164,24 +226,25 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         "threshold_analysis": {
             "candidate_thresholds": threshold_metrics,
             "best_for_target_recall": best_threshold_summary,
+            "f1_threshold_tuning": threshold_tuning,
         },
         "improvement": {
-            "accuracy": round(model_metrics["accuracy"] - baseline_metrics["accuracy"], 4),
+            "accuracy": round(model_metrics_optimized["accuracy"] - baseline_metrics["accuracy"], 4),
             "balanced_accuracy": round(
-                model_metrics["balanced_accuracy"] - baseline_metrics["balanced_accuracy"],
+                model_metrics_optimized["balanced_accuracy"] - baseline_metrics["balanced_accuracy"],
                 4,
             ),
-            "precision": round(model_metrics["precision"] - baseline_metrics["precision"], 4),
-            "recall": round(model_metrics["recall"] - baseline_metrics["recall"], 4),
-            "f1": round(model_metrics["f1"] - baseline_metrics["f1"], 4),
-            "roc_auc": round(model_metrics["roc_auc"] - baseline_metrics["roc_auc"], 4),
+            "precision": round(model_metrics_optimized["precision"] - baseline_metrics["precision"], 4),
+            "recall": round(model_metrics_optimized["recall"] - baseline_metrics["recall"], 4),
+            "f1": round(model_metrics_optimized["f1"] - baseline_metrics["f1"], 4),
+            "roc_auc": round(model_metrics_optimized["roc_auc"] - baseline_metrics["roc_auc"], 4),
         }
     }
 
     Path(config.METRICS_PATH).parent.mkdir(parents=True, exist_ok=True)
     Path(config.MODEL_PATH).parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, config.MODEL_PATH)
-    joblib.dump(preprocessing_pipeline, config.PIPELINE_PATH)
+    joblib.dump(final_model, config.MODEL_PATH)
+    joblib.dump(final_pipeline, config.PIPELINE_PATH)
 
     with open(config.METRICS_PATH, "w", encoding="utf-8") as metrics_file:
         json.dump(results, metrics_file, indent=2)
@@ -189,10 +252,26 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
     coef_df.to_csv(config.COEFFICIENTS_PATH, index=False)
     pr_curve_df.to_csv(config.PR_CURVE_PATH, index=False)
 
-    sample_predictions = predict_new_data(X_test.head(5), model=model, pipeline=preprocessing_pipeline)
+    sample_predictions = predict_new_data(X_test.head(5), model=final_model, pipeline=final_pipeline)
     sample_predictions.to_csv(config.PREDICTIONS_PATH, index=False)
 
     return results
+
+
+def _compute_binary_metrics(y_true: pd.Series | np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
+    """Compute binary classification metrics from labels only."""
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    return {
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
+        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+        "tn": float(tn),
+        "fp": float(fp),
+        "fn": float(fn),
+        "tp": float(tp),
+    }
 
 
 if __name__ == "__main__":
@@ -202,12 +281,13 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("BASELINE vs MODEL COMPARISON")
     print("=" * 80)
-    print(f"\n{'Metric':<20} {'Baseline':<20} {'Model':<20} {'Improvement':<15}")
+    print(f"\n{'Metric':<20} {'Baseline':<20} {'Model (opt.)':<20} {'Improvement':<15}")
     print("-" * 80)
 
+    model_optimized = results["model"]["optimized_threshold"]
     for metric in ["accuracy", "balanced_accuracy", "precision", "recall", "f1", "roc_auc"]:
         baseline_val = results["baseline"][metric]
-        model_val = results["model"][metric]
+        model_val = model_optimized[metric]
         improvement = results["improvement"][metric]
 
         print(f"{metric:<20} {baseline_val:<20.4f} {model_val:<20.4f} {improvement:+.4f}")
@@ -235,13 +315,24 @@ if __name__ == "__main__":
         f"+/- {results['cross_validation']['cv_recall_std']:.4f}"
     )
 
-    print("\nThreshold Analysis (Precision/Recall)")
+    print("\nThreshold Analysis (Precision/Recall/F1)")
     print("-" * 80)
     for threshold, metrics in results["threshold_analysis"]["candidate_thresholds"].items():
         print(
             f"threshold={threshold} | precision={metrics['precision']:.4f} "
-            f"| recall={metrics['recall']:.4f}"
+            f"| recall={metrics['recall']:.4f} | f1={metrics['f1']:.4f}"
         )
+
+    tuning = results["threshold_analysis"]["f1_threshold_tuning"]
+    print(
+        "best threshold for F1 on validation: "
+        f"{tuning['best_threshold']:.4f} "
+        f"(val_f1={tuning['best_validation_f1']:.4f})"
+    )
+    print(
+        "test F1 default vs optimized: "
+        f"{tuning['test_f1_default']:.4f} -> {tuning['test_f1_optimized']:.4f}"
+    )
 
     best = results["threshold_analysis"]["best_for_target_recall"]
     if best["threshold"] is not None:
@@ -265,8 +356,10 @@ if __name__ == "__main__":
     )
     print(
         "Model:    "
-        f"({int(results['model']['tn'])}, {int(results['model']['fp'])}, "
-        f"{int(results['model']['fn'])}, {int(results['model']['tp'])})"
+        f"({int(results['model']['optimized_threshold']['tn'])}, "
+        f"{int(results['model']['optimized_threshold']['fp'])}, "
+        f"{int(results['model']['optimized_threshold']['fn'])}, "
+        f"{int(results['model']['optimized_threshold']['tp'])})"
     )
 
     print("=" * 80 + "\n")

@@ -19,6 +19,7 @@ class Config:
     NUMERICAL_COLUMNS: tuple[str, ...] = ("tenure", "MonthlyCharges", "TotalCharges")
 
     TEST_SIZE: float = 0.2
+    VALIDATION_SIZE: float = 0.2
     RANDOM_STATE: int = 42
 
     MAX_ITER: int = 1000
@@ -27,3 +28,21 @@ class Config:
 
     TARGET_RECALL: float = 0.8
     THRESHOLD_CANDIDATES: tuple[float, ...] = (0.3, 0.5, 0.7)
+    F1_THRESHOLD_GRID: tuple[float, ...] = (
+        0.1,
+        0.15,
+        0.2,
+        0.25,
+        0.3,
+        0.35,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.65,
+        0.7,
+        0.75,
+        0.8,
+        0.85,
+    )
