@@ -13,6 +13,8 @@ class Config:
     PREDICTIONS_PATH: str = "reports/predictions.csv"
     COEFFICIENTS_PATH: str = "reports/logistic_coefficients.csv"
     PR_CURVE_PATH: str = "reports/precision_recall_curve.csv"
+    CONFUSION_MATRIX_COUNTS_PATH: str = "reports/confusion_matrix_counts.csv"
+    THRESHOLD_CONFUSION_MATRICES_PATH: str = "reports/threshold_confusion_matrices.csv"
 
     TARGET_COLUMN: str = "Churn"
     CATEGORICAL_COLUMNS: tuple[str, ...] = ("Contract", "PaymentMethod")

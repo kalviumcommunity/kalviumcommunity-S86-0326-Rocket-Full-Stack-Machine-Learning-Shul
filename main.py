@@ -135,13 +135,28 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
     model_metrics_optimized["roc_auc"] = float(roc_auc_score(y_test, test_prob))
 
     threshold_metrics: dict[str, dict[str, float]] = {}
+    threshold_confusion_rows: list[dict[str, float | str]] = []
     for threshold in config.THRESHOLD_CANDIDATES:
         y_custom = (test_prob >= threshold).astype(int)
+        threshold_confusion = _compute_confusion_summary(y_test, y_custom)
         threshold_metrics[f"{threshold:.2f}"] = {
             "precision": round(float(precision_score(y_test, y_custom, zero_division=0)), 4),
             "recall": round(float(recall_score(y_test, y_custom, zero_division=0)), 4),
             "f1": round(float(f1_score(y_test, y_custom, zero_division=0)), 4),
         }
+        threshold_confusion_rows.append(
+            {
+                "threshold": f"{threshold:.2f}",
+                "tn": int(threshold_confusion["tn"]),
+                "fp": int(threshold_confusion["fp"]),
+                "fn": int(threshold_confusion["fn"]),
+                "tp": int(threshold_confusion["tp"]),
+                "tn_rate": round(float(threshold_confusion["tn_rate"]), 4),
+                "fp_rate": round(float(threshold_confusion["fp_rate"]), 4),
+                "fn_rate": round(float(threshold_confusion["fn_rate"]), 4),
+                "tp_rate": round(float(threshold_confusion["tp_rate"]), 4),
+            }
+        )
 
     precisions, recalls, thresholds = precision_recall_curve(y_test, test_prob)
     # precision_recall_curve returns one more precision/recall point than thresholds.
@@ -180,6 +195,60 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
         "best_validation_f1": round(float(best_val_f1), 4),
         "test_f1_default": round(float(f1_score(y_test, test_pred_default, zero_division=0)), 4),
         "test_f1_optimized": round(float(model_metrics_optimized["f1"]), 4),
+    }
+
+    baseline_confusion = _compute_confusion_summary(y_test, baseline.predict(X_test))
+    default_confusion = _compute_confusion_summary(y_test, test_pred_default)
+    optimized_confusion = _compute_confusion_summary(y_test, test_pred_optimized)
+
+    confusion_matrix_summary = {
+        "baseline": {
+            "layout": [["tn", "fp"], ["fn", "tp"]],
+            "counts": {
+                "tn": int(baseline_confusion["tn"]),
+                "fp": int(baseline_confusion["fp"]),
+                "fn": int(baseline_confusion["fn"]),
+                "tp": int(baseline_confusion["tp"]),
+            },
+            "normalized_true": {
+                "tn_rate": round(float(baseline_confusion["tn_rate"]), 4),
+                "fp_rate": round(float(baseline_confusion["fp_rate"]), 4),
+                "fn_rate": round(float(baseline_confusion["fn_rate"]), 4),
+                "tp_rate": round(float(baseline_confusion["tp_rate"]), 4),
+            },
+        },
+        "model_default_threshold": {
+            "threshold": 0.5,
+            "layout": [["tn", "fp"], ["fn", "tp"]],
+            "counts": {
+                "tn": int(default_confusion["tn"]),
+                "fp": int(default_confusion["fp"]),
+                "fn": int(default_confusion["fn"]),
+                "tp": int(default_confusion["tp"]),
+            },
+            "normalized_true": {
+                "tn_rate": round(float(default_confusion["tn_rate"]), 4),
+                "fp_rate": round(float(default_confusion["fp_rate"]), 4),
+                "fn_rate": round(float(default_confusion["fn_rate"]), 4),
+                "tp_rate": round(float(default_confusion["tp_rate"]), 4),
+            },
+        },
+        "model_optimized_threshold": {
+            "threshold": round(float(best_f1_threshold), 4),
+            "layout": [["tn", "fp"], ["fn", "tp"]],
+            "counts": {
+                "tn": int(optimized_confusion["tn"]),
+                "fp": int(optimized_confusion["fp"]),
+                "fn": int(optimized_confusion["fn"]),
+                "tp": int(optimized_confusion["tp"]),
+            },
+            "normalized_true": {
+                "tn_rate": round(float(optimized_confusion["tn_rate"]), 4),
+                "fp_rate": round(float(optimized_confusion["fp_rate"]), 4),
+                "fn_rate": round(float(optimized_confusion["fn_rate"]), 4),
+                "tp_rate": round(float(optimized_confusion["tp_rate"]), 4),
+            },
+        },
     }
 
     final_pipeline = build_preprocessing_pipeline(
@@ -228,6 +297,7 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
             "best_for_target_recall": best_threshold_summary,
             "f1_threshold_tuning": threshold_tuning,
         },
+        "confusion_matrix": confusion_matrix_summary,
         "improvement": {
             "accuracy": round(model_metrics_optimized["accuracy"] - baseline_metrics["accuracy"], 4),
             "balanced_accuracy": round(
@@ -251,6 +321,47 @@ def run_training_and_prediction(config: Config) -> dict[str, dict[str, float]]:
 
     coef_df.to_csv(config.COEFFICIENTS_PATH, index=False)
     pr_curve_df.to_csv(config.PR_CURVE_PATH, index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_variant": "baseline",
+                "threshold": "n/a",
+                "tn": int(baseline_confusion["tn"]),
+                "fp": int(baseline_confusion["fp"]),
+                "fn": int(baseline_confusion["fn"]),
+                "tp": int(baseline_confusion["tp"]),
+                "tn_rate": round(float(baseline_confusion["tn_rate"]), 4),
+                "fp_rate": round(float(baseline_confusion["fp_rate"]), 4),
+                "fn_rate": round(float(baseline_confusion["fn_rate"]), 4),
+                "tp_rate": round(float(baseline_confusion["tp_rate"]), 4),
+            },
+            {
+                "model_variant": "model_default_threshold",
+                "threshold": "0.50",
+                "tn": int(default_confusion["tn"]),
+                "fp": int(default_confusion["fp"]),
+                "fn": int(default_confusion["fn"]),
+                "tp": int(default_confusion["tp"]),
+                "tn_rate": round(float(default_confusion["tn_rate"]), 4),
+                "fp_rate": round(float(default_confusion["fp_rate"]), 4),
+                "fn_rate": round(float(default_confusion["fn_rate"]), 4),
+                "tp_rate": round(float(default_confusion["tp_rate"]), 4),
+            },
+            {
+                "model_variant": "model_optimized_threshold",
+                "threshold": f"{best_f1_threshold:.2f}",
+                "tn": int(optimized_confusion["tn"]),
+                "fp": int(optimized_confusion["fp"]),
+                "fn": int(optimized_confusion["fn"]),
+                "tp": int(optimized_confusion["tp"]),
+                "tn_rate": round(float(optimized_confusion["tn_rate"]), 4),
+                "fp_rate": round(float(optimized_confusion["fp_rate"]), 4),
+                "fn_rate": round(float(optimized_confusion["fn_rate"]), 4),
+                "tp_rate": round(float(optimized_confusion["tp_rate"]), 4),
+            },
+        ]
+    ).to_csv(config.CONFUSION_MATRIX_COUNTS_PATH, index=False)
+    pd.DataFrame(threshold_confusion_rows).to_csv(config.THRESHOLD_CONFUSION_MATRICES_PATH, index=False)
 
     sample_predictions = predict_new_data(X_test.head(5), model=final_model, pipeline=final_pipeline)
     sample_predictions.to_csv(config.PREDICTIONS_PATH, index=False)
@@ -271,6 +382,23 @@ def _compute_binary_metrics(y_true: pd.Series | np.ndarray, y_pred: np.ndarray) 
         "fp": float(fp),
         "fn": float(fn),
         "tp": float(tp),
+    }
+
+
+def _compute_confusion_summary(y_true: pd.Series | np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
+    """Return confusion matrix counts and normalized row-wise rates."""
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    actual_negative = tn + fp
+    actual_positive = fn + tp
+    return {
+        "tn": float(tn),
+        "fp": float(fp),
+        "fn": float(fn),
+        "tp": float(tp),
+        "tn_rate": float(tn / actual_negative) if actual_negative > 0 else 0.0,
+        "fp_rate": float(fp / actual_negative) if actual_negative > 0 else 0.0,
+        "fn_rate": float(fn / actual_positive) if actual_positive > 0 else 0.0,
+        "tp_rate": float(tp / actual_positive) if actual_positive > 0 else 0.0,
     }
 
 

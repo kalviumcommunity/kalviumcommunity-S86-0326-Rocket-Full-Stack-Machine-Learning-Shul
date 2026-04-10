@@ -29,6 +29,7 @@ The system is designed to support both exploratory analysis and predictive model
 - `notebooks/08_evaluating_classification_models_using_accuracy.md` - Practical lesson on evaluating classification using accuracy, understanding imbalance pitfalls, comparing against baseline, and using balanced accuracy with confusion matrix context.
 - `notebooks/09_evaluating_classification_models_using_precision_and_recall.md` - Practical lesson on evaluating classification using precision and recall, handling the threshold trade-off, comparing against baseline, and selecting operating points with PR analysis.
 - `notebooks/10_evaluating_classification_models_using_f1_score.md` - Practical lesson on evaluating classification with F1-score, baseline comparison, macro/micro/weighted averaging, leakage-safe threshold tuning, and CV stability checks.
+- `notebooks/11_creating_and_interpreting_confusion_matrix.md` - Practical lesson on confusion matrix structure, TP/TN/FP/FN interpretation, metric derivation, imbalance-aware reading, threshold impact, and common misinterpretation traps.
 
 ## Project Structure
 
