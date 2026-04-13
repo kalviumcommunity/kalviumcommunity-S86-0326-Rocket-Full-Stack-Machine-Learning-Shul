@@ -33,6 +33,7 @@ The system is designed to support both exploratory analysis and predictive model
 - `notebooks/12_training_knn_model.md` - Practical lesson on training KNN for classification and regression, feature scaling, distance metrics, K selection, baseline comparison, and dimensionality limits.
 - `notebooks/13_understanding_bias_and_variance_through_model_behavior.md` - Practical lesson on recognizing bias and variance in model metrics, diagnosing underfitting and overfitting with learning curves, and choosing the right corrective action.
 - `notebooks/14_training_decision_tree_model.md` - Practical lesson on training Decision Trees for classification and regression, impurity measures, depth tuning, interpretability, overfitting control, and baseline comparison.
+- `notebooks/15_interpreting_feature_importance_from_tree_based_models.md` - Practical lesson on extracting and visualizing feature importance, comparing impurity-based and permutation methods, and avoiding common interpretation mistakes.
 
 ## Project Structure
 
