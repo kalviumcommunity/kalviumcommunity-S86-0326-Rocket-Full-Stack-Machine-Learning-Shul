@@ -31,6 +31,7 @@ The system is designed to support both exploratory analysis and predictive model
 - `notebooks/10_evaluating_classification_models_using_f1_score.md` - Practical lesson on evaluating classification with F1-score, baseline comparison, macro/micro/weighted averaging, leakage-safe threshold tuning, and CV stability checks.
 - `notebooks/11_creating_and_interpreting_confusion_matrix.md` - Practical lesson on confusion matrix structure, TP/TN/FP/FN interpretation, metric derivation, imbalance-aware reading, threshold impact, and common misinterpretation traps.
 - `notebooks/12_training_knn_model.md` - Practical lesson on training KNN for classification and regression, feature scaling, distance metrics, K selection, baseline comparison, and dimensionality limits.
+- `notebooks/13_understanding_bias_and_variance_through_model_behavior.md` - Practical lesson on recognizing bias and variance in model metrics, diagnosing underfitting and overfitting with learning curves, and choosing the right corrective action.
 
 ## Project Structure
 
